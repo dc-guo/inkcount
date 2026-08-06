@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>convolveSame fixture test</title>
+<style>body{font-family:system-ui,sans-serif;margin:2rem}#verdict{font-size:1.4rem;font-weight:bold}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem;overflow-x:auto}</style>
+</head>
+<body>
+<h1>convolveSame vs np.convolve fixtures</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script src="../web/app.js"></script>
+<script>
+(async () => {
+  const verdict = document.getElementById('verdict');
+  const log = document.getElementById('log');
+  const lines = [];
+  const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+  try {
+    const resp = await fetch('./fixtures/convolve_fixtures.json');
+    if (!resp.ok) throw new Error('fixtures fetch failed: HTTP ' + resp.status);
+    const { cases } = await resp.json();
+    let allPass = true;
+    cases.forEach((c, ci) => {
+      const got = CVPort.convolveSame(c.input, c.k);
+      let worst = 0, worstIdx = -1;
+      if (got.length !== c.expected.length) {
+        allPass = false;
+        say('case ' + ci + ' (k=' + c.k + ', M=' + c.input.length + '): LENGTH MISMATCH got ' + got.length + ' want ' + c.expected.length);
+        return;
+      }
+      for (let i = 0; i < got.length; i++) {
+        const tol = 1e-6 * Math.max(1, Math.abs(c.expected[i]));
+        const diff = Math.abs(got[i] - c.expected[i]);
+        if (diff > worst) { worst = diff; worstIdx = i; }
+        if (diff > tol) {
+          allPass = false;
+          say('case ' + ci + ' (k=' + c.k + '): FAIL at i=' + i + ' got=' + got[i] + ' want=' + c.expected[i] + ' diff=' + diff);
+          return;
+        }
+      }
+      say('case ' + ci + ' (k=' + c.k + ', M=' + c.input.length + '): PASS (worst |diff|=' + worst.toExponential(2) + ' at i=' + worstIdx + ')');
+    });
+    verdict.textContent = allPass ? 'MATH: PASS (' + cases.length + '/' + cases.length + ')' : 'MATH: FAIL';
+    verdict.className = allPass ? 'pass' : 'fail';
+    document.title = allPass ? 'MATH PASS' : 'MATH FAIL';
+    console.log(verdict.textContent + '\n' + lines.join('\n'));
+  } catch (e) {
+    verdict.textContent = 'MATH: FAIL — ' + (e && e.message ? e.message : String(e));
+    verdict.className = 'fail';
+    document.title = 'MATH FAIL';
+    console.log(verdict.textContent);
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenCV.js smoke test</title>
+<style>body{font-family:system-ui,sans-serif;margin:2rem}#verdict{font-size:1.4rem;font-weight:bold}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem;overflow-x:auto}</style>
+</head>
+<body>
+<h1>OpenCV.js smoke test</h1>
+<div id="verdict">Loading…</div>
+<pre id="log"></pre>
+<script src="../web/app.js"></script>
+<script>
+(async () => {
+  const verdict = document.getElementById('verdict');
+  const log = document.getElementById('log');
+  const lines = [];
+  const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+  try {
+    say('Loading ../web/vendor/opencv.js …');
+    await CVPort.init('../web/vendor/opencv.js');
+    say('runtime ready: cv.Mat = ' + typeof cv.Mat);
+
+    if (typeof cv.CLAHE !== 'function') throw new Error('cv.CLAHE constructor missing');
+    const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+    clahe.delete();
+    say('CLAHE(2.0, 8x8): OK');
+
+    if (typeof cv.COLOR_BGRA2GRAY !== 'number') throw new Error('cv.COLOR_BGRA2GRAY missing');
+    say('COLOR_BGRA2GRAY = ' + cv.COLOR_BGRA2GRAY + ', COLOR_RGBA2GRAY = ' + cv.COLOR_RGBA2GRAY);
+
+    if (typeof cv.morphologyDefaultBorderValue !== 'function') throw new Error('cv.morphologyDefaultBorderValue missing');
+    say('morphologyDefaultBorderValue: OK');
+
+    const m = new cv.Mat(8, 8, cv.CV_8UC4, new cv.Scalar(10, 200, 30, 255));
+    const g = new cv.Mat();
+    cv.cvtColor(m, g, cv.COLOR_BGRA2GRAY);
+    say('BGRA2GRAY roundtrip: ' + g.rows + 'x' + g.cols + ' value=' + g.data[0]);
+    m.delete(); g.delete();
+
+    for (const fn of ['adaptiveThreshold', 'GaussianBlur', 'dilate', 'findContours', 'boundingRect', 'getStructuringElement', 'addWeighted', 'resize']) {
+      if (typeof cv[fn] !== 'function') throw new Error('cv.' + fn + ' missing');
+    }
+    say('core pipeline functions: all present');
+
+    verdict.textContent = 'SMOKE: PASS';
+    verdict.className = 'pass';
+    document.title = 'SMOKE PASS';
+    console.log('SMOKE: PASS\n' + lines.join('\n'));
+  } catch (e) {
+    verdict.textContent = 'SMOKE: FAIL — ' + (e && e.message ? e.message : String(e));
+    verdict.className = 'fail';
+    say('ERROR: ' + (e && e.stack ? e.stack : e));
+    document.title = 'SMOKE FAIL';
+    console.log('SMOKE: FAIL\n' + lines.join('\n'));
+  }
+})();
+</script>
+</body>
+</html>

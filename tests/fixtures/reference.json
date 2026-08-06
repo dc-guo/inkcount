@@ -1,0 +1,73 @@
+{
+  "demo_meeting.jpg": {
+    "lines": 4,
+    "rawContourCount": 4,
+    "perLine": [
+      3,
+      8,
+      10,
+      9
+    ],
+    "total": 30,
+    "width": 1800,
+    "height": 600,
+    "mergedBoxes": [
+      [
+        0,
+        41,
+        739,
+        48
+      ],
+      [
+        0,
+        96,
+        739,
+        49
+      ],
+      [
+        0,
+        151,
+        739,
+        52
+      ],
+      [
+        0,
+        208,
+        739,
+        49
+      ]
+    ]
+  },
+  "demo_lecture.jpg": {
+    "lines": 3,
+    "rawContourCount": 3,
+    "perLine": [
+      3,
+      6,
+      7
+    ],
+    "total": 16,
+    "width": 1800,
+    "height": 600,
+    "mergedBoxes": [
+      [
+        0,
+        42,
+        1271,
+        47
+      ],
+      [
+        0,
+        95,
+        1271,
+        55
+      ],
+      [
+        0,
+        152,
+        1271,
+        49
+      ]
+    ]
+  }
+}

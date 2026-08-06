@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Handwritten Word Counter — Proof of Concept</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main id="app">
+  <header class="app-header">
+    <h1>📝 Handwritten Word Counter <span class="badge">Proof of Concept</span></h1>
+    <p class="subtitle">Geometric word-cluster estimation with OpenCV.js — no OCR, no AI inference.</p>
+    <p class="privacy-note">🔒 <strong>Privacy:</strong> your images are processed entirely in your browser and never uploaded to any server.</p>
+  </header>
+
+  <section class="card" aria-label="Image input">
+    <h2>1 · Choose an image</h2>
+    <div id="drop-zone">
+      <label class="file-label" for="file-input">
+        <strong>Upload a notebook photo</strong> (JPG or PNG) — or drag &amp; drop it here
+        <input type="file" id="file-input" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+      </label>
+      <div class="sample-row">
+        <span>or try a built-in sample:</span>
+        <button type="button" id="btn-sample-meeting" class="btn btn-secondary">Meeting notes</button>
+        <button type="button" id="btn-sample-lecture" class="btn btn-secondary">Lecture notes</button>
+      </div>
+    </div>
+    <p id="active-image-label" class="active-label">No image loaded.</p>
+    <div id="canvas-original" class="canvas-slot" aria-label="Original image preview"></div>
+  </section>
+
+  <section class="card" aria-label="Configuration and run">
+    <h2>2 · Run the analysis</h2>
+    <div class="run-row">
+      <label class="target-label" for="target-input">
+        Minimum required words
+        <input type="number" id="target-input" value="31" min="1" step="10">
+      </label>
+      <button type="button" id="btn-run" class="btn btn-primary" disabled>▶ Run Analysis</button>
+      <button type="button" id="btn-reset" class="btn btn-secondary">Reset</button>
+    </div>
+    <p id="status-text" class="status" role="status">Loading OpenCV.js…</p>
+    <progress id="progress" hidden></progress>
+    <div id="error-banner" class="error" role="alert" hidden></div>
+  </section>
+
+  <section class="card" id="results-section" aria-label="Results" hidden>
+    <h2>3 · Result</h2>
+    <div id="result-banner" class="banner"></div>
+    <div class="metrics">
+      <div class="metric"><span class="metric-value" id="result-total">–</span><span class="metric-label">estimated word clusters</span></div>
+      <div class="metric"><span class="metric-value" id="result-lines">–</span><span class="metric-label">handwritten rows detected</span></div>
+    </div>
+  </section>
+
+  <section class="card" id="previews-section" aria-label="Debug previews" hidden>
+    <h2>4 · How the estimate was made</h2>
+    <details open>
+      <summary>Line segmentation preview (orange bands = detected ink rows, green boxes = final rows, blue = raw fragments)</summary>
+      <div id="canvas-segmentation" class="canvas-slot"></div>
+    </details>
+    <h3>Word clusters per line (red boxes = counted clusters)</h3>
+    <div id="line-results"></div>
+  </section>
+
+  <footer class="app-footer">
+    <h3>Proof-of-concept limitations</h3>
+    <ul>
+      <li>The count is an estimate based on geometric word clustering.</li>
+      <li>Unusual cursive spacing may split one word into multiple clusters.</li>
+      <li>Very tight handwriting may merge multiple words into one cluster.</li>
+      <li>Lighting, page angle, shadows, notebook lines, and image quality can affect results.</li>
+      <li>This is a proof of concept, not a production handwriting-recognition system.</li>
+    </ul>
+    <p class="fineprint">Runs OpenCV.js 4.9.0 locally in your browser. Algorithm identical to the Python reference implementation in this repository.</p>
+  </footer>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>

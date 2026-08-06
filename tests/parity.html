@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Browser vs Python parity</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:2rem}
+#verdict{font-size:1.4rem;font-weight:bold}.pass{color:#18a34a}.fail{color:#e53935}
+table{border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #ccc;padding:.3rem .6rem;text-align:left}
+pre{background:#f4f4f4;padding:1rem;overflow-x:auto}
+canvas{max-width:100%;height:auto;border:1px solid #ddd;margin:.5rem 0}
+</style>
+</head>
+<body>
+<h1>Browser vs Python parity — full pipeline</h1>
+<div id="verdict">Running…</div>
+<div id="tables"></div>
+<h2>Machine-readable result</h2>
+<pre id="json"></pre>
+<h2>Segmentation previews (browser)</h2>
+<div id="previews"></div>
+<script src="../web/app.js"></script>
+<script>
+(async () => {
+  const verdict = document.getElementById('verdict');
+  const tables = document.getElementById('tables');
+  const jsonOut = document.getElementById('json');
+  const previews = document.getElementById('previews');
+  const SAMPLES = ['demo_meeting.jpg', 'demo_lecture.jpg'];
+  const summary = {};
+  try {
+    await CVPort.init('../web/vendor/opencv.js');
+    const refResp = await fetch('./fixtures/reference.json');
+    if (!refResp.ok) throw new Error('reference.json fetch failed: HTTP ' + refResp.status);
+    const ref = await refResp.json();
+    let allPass = true;
+
+    for (const name of SAMPLES) {
+      const canvas = await CVPort.loadImageToCanvas('../web/samples/' + name);
+      const res = await CVPort.analyzeCanvas(canvas);
+      const py = ref[name];
+      const browser = {
+        lines: res.lines, rawContourCount: res.rawContourCount, perLine: res.perLine,
+        total: res.total, width: res.width, height: res.height,
+        mergedBoxes: res.mergedBoxes,
+      };
+
+      const diffs = [];
+      const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      for (const key of ['lines', 'rawContourCount', 'total', 'width', 'height', 'perLine', 'mergedBoxes']) {
+        if (!eq(browser[key], py[key])) diffs.push(key + ': browser=' + JSON.stringify(browser[key]) + ' python=' + JSON.stringify(py[key]));
+      }
+      const match = diffs.length === 0;
+      allPass = allPass && match;
+      summary[name] = { match, python: py, browser, diffs };
+
+      const t = document.createElement('table');
+      t.innerHTML = '<caption><strong>' + name + ' — ' + (match ? 'MATCH' : 'MISMATCH') + '</strong></caption>' +
+        '<tr><th>Field</th><th>Python</th><th>Browser</th></tr>' +
+        ['lines', 'perLine', 'total', 'rawContourCount', 'width', 'height'].map(k =>
+          '<tr><td>' + k + '</td><td>' + JSON.stringify(py[k]) + '</td><td>' + JSON.stringify(browser[k]) + '</td></tr>').join('');
+      tables.appendChild(t);
+
+      const h = document.createElement('h3');
+      h.textContent = name;
+      previews.appendChild(h);
+      previews.appendChild(res.segmentationCanvas);
+      res.lineDetails.forEach((ld) => { if (ld.overlayCanvas) previews.appendChild(ld.overlayCanvas); });
+    }
+
+    verdict.textContent = allPass ? 'PARITY: PASS' : 'PARITY: FAIL';
+    verdict.className = allPass ? 'pass' : 'fail';
+    jsonOut.textContent = JSON.stringify(summary, null, 2);
+    document.title = allPass ? 'PARITY PASS' : 'PARITY FAIL';
+    console.log('PARITY ' + (allPass ? 'PASS' : 'FAIL') + ' ' + JSON.stringify(summary));
+  } catch (e) {
+    verdict.textContent = 'PARITY: ERROR — ' + (e && e.message ? e.message : String(e));
+    verdict.className = 'fail';
+    jsonOut.textContent = JSON.stringify(summary, null, 2);
+    document.title = 'PARITY ERROR';
+    console.log('PARITY ERROR ' + (e && e.message ? e.message : String(e)) + ' ' + JSON.stringify(summary));
+  }
+})();
+</script>
+</body>
+</html>

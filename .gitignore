@@ -1,0 +1,23 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Personal handwritten note images — never commit real notes.
+# (The two images in samples/ and web/samples/ are machine-generated demos.)
+uploads/
+*_personal.*
+my_notes*.*
+
+# Build artifacts and temporary files
+dist/
+build/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Local backups and archives
+*_backup/
+*.zip
