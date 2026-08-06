@@ -468,7 +468,7 @@
       previews: $('previews-section'),
     };
 
-    const state = { canvas: null, name: null, source: null, result: null, running: false, cvReady: false };
+    const state = { canvas: null, name: null, source: null, result: null, running: false, loading: false, cvReady: false };
 
     function setStatus(text) { els.status.textContent = text; }
 
@@ -484,7 +484,9 @@
     }
 
     function updateRunEnabled() {
-      els.run.disabled = !(state.cvReady && state.canvas && !state.running);
+      // `loading` matters: without it, Run stays enabled while a newly chosen
+      // image is still being fetched and would analyze the previous image.
+      els.run.disabled = !(state.cvReady && state.canvas && !state.running && !state.loading);
     }
 
     function clearResults() {
@@ -615,6 +617,7 @@
       state.canvas = null;
       state.name = null;
       state.source = null;
+      state.loading = false;
       clearResults();
       hideError();
       els.fileInput.value = '';
@@ -624,27 +627,33 @@
       updateRunEnabled();
     }
 
-    async function useFile(file) {
+    async function loadInto(source, name, label, loadingMessage) {
+      state.loading = true;
+      updateRunEnabled();
+      setStatus(loadingMessage);
+      try {
+        const canvas = await CVPort.loadImageToCanvas(source);
+        state.loading = false;
+        setActiveImage(canvas, name, label);
+      } catch (e) {
+        state.loading = false;
+        updateRunEnabled();
+        setStatus('Ready — load an image.');
+        showError('Could not load that image: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+
+    function useFile(file) {
       if (!file) return;
       if (!/\.(jpe?g|png)$/i.test(file.name) && !/^image\/(jpeg|png)$/.test(file.type)) {
         showError('Unsupported file type. Please choose a JPG or PNG image.');
         return;
       }
-      try {
-        const canvas = await CVPort.loadImageToCanvas(file);
-        setActiveImage(canvas, file.name, 'Uploaded file');
-      } catch (e) {
-        showError('Could not read that image: ' + (e && e.message ? e.message : String(e)));
-      }
+      return loadInto(file, file.name, 'Uploaded file', 'Reading image…');
     }
 
-    async function useSample(name) {
-      try {
-        const canvas = await CVPort.loadImageToCanvas('./samples/' + name);
-        setActiveImage(canvas, name, 'Built-in sample');
-      } catch (e) {
-        showError('Could not load sample: ' + (e && e.message ? e.message : String(e)));
-      }
+    function useSample(name) {
+      return loadInto('./samples/' + name, name, 'Built-in sample', 'Loading sample image…');
     }
 
     els.fileInput.addEventListener('change', () => useFile(els.fileInput.files[0]));
