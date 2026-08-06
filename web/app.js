@@ -1,5 +1,5 @@
 /*
- * Handwritten Word Counter POC — client-side port of cv_utils.py / app.py.
+ * InkCount — client-side port of cv_utils.py / app.py.
  *
  * Parity contract: every parameter and control-flow decision below mirrors the
  * Python reference implementation in this repository (cv_utils.py, app.py).

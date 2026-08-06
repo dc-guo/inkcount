@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Handwritten Word Counter — Proof of Concept</title>
+<title>InkCount — Handwritten Word Counter (Proof of Concept)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cpath d='M16 5c4.6 5.7 7.2 9.4 7.2 12.4a7.2 7.2 0 1 1-14.4 0C8.8 14.4 11.4 10.7 16 5z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <main id="app">
   <header class="app-header">
-    <h1>📝 Handwritten Word Counter <span class="badge">Proof of Concept</span></h1>
-    <p class="subtitle">Geometric word-cluster estimation with OpenCV.js — no OCR, no AI inference.</p>
+    <h1>🖋️ InkCount <span class="badge">Proof of Concept</span></h1>
+    <p class="subtitle">Counts handwritten words on a notebook page — geometric word-cluster estimation with OpenCV.js, no OCR, no AI inference.</p>
     <p class="privacy-note">🔒 <strong>Privacy:</strong> your images are processed entirely in your browser and never uploaded to any server.</p>
   </header>
 
@@ -74,7 +75,7 @@
       <li>Lighting, page angle, shadows, notebook lines, and image quality can affect results.</li>
       <li>This is a proof of concept, not a production handwriting-recognition system.</li>
     </ul>
-    <p class="fineprint">Runs OpenCV.js 4.9.0 locally in your browser. Algorithm identical to the Python reference implementation in this repository.</p>
+    <p class="fineprint">InkCount runs OpenCV.js 4.9.0 locally in your browser. Algorithm identical to the Python reference implementation in <a href="https://github.com/dc-guo/inkcount">the InkCount repository</a>.</p>
   </footer>
 </main>
 <script src="./app.js"></script>

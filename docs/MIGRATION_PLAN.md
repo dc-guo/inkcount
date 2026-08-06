@@ -10,7 +10,7 @@ Source spec: `GITHUB_ONLY_HANDOFF.md` (user-provided handoff)
 - No backend, no Python runtime, no database, no external API, no API keys, no React. All image processing happens in the visitor's browser.
 - Port the **actual** OpenCV parameters and math from `cv_utils.py`. Do not invent a different counting algorithm. Preserve current POC limitations.
 - Python files stay untouched; they remain in the repo as the reference implementation.
-- New site lives in `web/`, using relative paths that work under `https://<user>.github.io/handwritten-word-counter-poc/`.
+- New site lives in `web/`, using relative paths that work under the project Pages URL (shipped as <https://dc-guo.github.io/inkcount/>).
 
 ## 2. What the current app actually does (audit)
 
@@ -170,7 +170,7 @@ Error handling: OpenCV load failure/timeout, unreadable/corrupt image, zero line
 ## 10. Deployment plan (later phases, after separate approval)
 
 - `.github/workflows/deploy-pages.yml`: checkout → `actions/configure-pages` → `actions/upload-pages-artifact` with `path: web` → `actions/deploy-pages`; triggers: push to `main` + `workflow_dispatch`. Written during implementation (inert until pushed), verified in the §9-phase.
-- All asset references relative (`./styles.css`, `./vendor/opencv.js`, `./samples/...`) — works at `/handwritten-word-counter-poc/` and at `http://localhost:8000/`.
+- All asset references relative (`./styles.css`, `./vendor/opencv.js`, `./samples/...`) — works at `/inkcount/` and at `http://localhost:8000/`.
 - `.gitignore`: `venv/`, `.venv/`, `__pycache__/`, `*.pyc`, personal note images, build artifacts, temp files, backup folder.
 - Root `README.md` update: live-demo placeholder, architecture, browser privacy explanation, POC limitations, local web-testing instructions. (Current README is Windows-batch-demo oriented; it gets extended, not rewritten, since Python files must stay usable.)
 - Git: repo is not yet initialized — per handoff §11 `git init -b main` happens at publish time, followed by the pre-push audit (no personal images, no secrets, no venv) and push to the user-created GitHub repo.

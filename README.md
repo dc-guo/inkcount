@@ -1,6 +1,6 @@
-# Handwritten Word Counter — Proof of Concept
+# 🖋️ InkCount — Handwritten Word Counter
 
-Counts handwritten words on a photographed notebook page using pure geometric computer vision (OpenCV) — no OCR, no machine-learning inference, no cloud. It segments the page into handwritten rows, clusters ink into word-sized boxes, and compares the estimated count against a configurable minimum target.
+**Proof of concept.** InkCount counts handwritten words on a photographed notebook page using pure geometric computer vision (OpenCV) — no OCR, no machine-learning inference, no cloud. It segments the page into handwritten rows, clusters ink into word-sized boxes, and compares the estimated count against a configurable minimum target.
 
 ## 🌐 Live Demo (browser version)
 
@@ -15,7 +15,7 @@ Runs entirely in your browser with OpenCV.js. **Privacy: images are processed lo
 | [`web/`](web/) | Any modern browser (GitHub Pages) | HTML + CSS + JavaScript + OpenCV.js 4.9.0 |
 | Repository root (`app.py`, `cv_utils.py`) | Local Python | Python + Streamlit + OpenCV (reference implementation) |
 
-The browser version is a verified line-by-line port of `cv_utils.py` — identical parameters and control flow. On both bundled samples it produces **exactly** the same counts and box coordinates as the Python version (details and the parity table in [`web/README.md`](web/README.md)).
+The browser version of InkCount is a verified line-by-line port of `cv_utils.py` — identical parameters and control flow. On both bundled samples it produces **exactly** the same counts and box coordinates as the Python version (details and the parity table in [`web/README.md`](web/README.md)).
 
 ### Architecture (browser version)
 
@@ -51,7 +51,7 @@ Windows one-click launchers (`INSTALL_DEMO.bat` / `RUN_DEMO.bat`) are also inclu
 - Unusual cursive spacing may split one word into multiple clusters.
 - Very tight handwriting may merge multiple words into one cluster.
 - Lighting, page angle, shadows, notebook lines, and image quality can affect results.
-- This is a proof of concept, **not** a production handwriting-recognition system.
+- InkCount is a proof of concept, **not** a production handwriting-recognition system.
 
 ## Repository layout
 

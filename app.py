@@ -10,7 +10,7 @@ except ImportError:
     st.error("Missing cv_utils.py module.")
     preprocess_image = None
 
-st.set_page_config(page_title="Notes Word Counter", page_icon="📝", layout="centered")
+st.set_page_config(page_title="InkCount (Python reference)", page_icon="🖋️", layout="centered")
 
 SAMPLE_DIR = "samples"
 
@@ -63,7 +63,7 @@ with st.sidebar:
 # -------------------------------------------------------------
 # MAIN APP HEADER
 # -------------------------------------------------------------
-st.title("📝 HW Word Cluster Engine (OpenCV CV)")
+st.title("🖋️ InkCount — Python Reference Engine (OpenCV)")
 st.warning("🚧 **Active Deployment:** True-Ink Bounding Optimization Engine")
 
 # -------------------------------------------------------------

@@ -1,6 +1,6 @@
-# Handwritten Word Counter — Browser Version (`web/`)
+# InkCount — Browser Version (`web/`)
 
-Fully client-side port of the Python/Streamlit proof of concept in the repository root. Runs entirely in the visitor's browser: HTML + CSS + vanilla JavaScript + OpenCV.js. No server, no backend, no API keys — **uploaded images never leave the browser**.
+Fully client-side port of the Python/Streamlit proof of concept in the repository root, deployed to <https://dc-guo.github.io/inkcount/>. Runs entirely in the visitor's browser: HTML + CSS + vanilla JavaScript + OpenCV.js. No server, no backend, no API keys — **uploaded images never leave the browser**.
 
 ## Run it locally
 
@@ -22,7 +22,7 @@ Then open <http://localhost:8000/web/>. Serving over HTTP is required — openin
 | `vendor/opencv.js` | Pinned official OpenCV.js **4.9.0** single-file build from `https://docs.opencv.org/4.9.0/opencv.js` |
 | `samples/` | Two machine-generated demo images (safe to publish) |
 
-The counting pipeline in `app.js` is a line-by-line port of `cv_utils.py` — identical parameters, thresholds, kernels, and control flow. Overlays are drawn with Canvas 2D and are purely cosmetic; counts come only from the ported pipeline. All OpenCV Mats are tracked in a scope and released after every run (`withMats`), including on errors.
+The InkCount pipeline in `app.js` is a line-by-line port of `cv_utils.py` — identical parameters, thresholds, kernels, and control flow. Overlays are drawn with Canvas 2D and are purely cosmetic; counts come only from the ported pipeline. All OpenCV Mats are tracked in a scope and released after every run (`withMats`), including on errors.
 
 ## Parity with the Python reference
 

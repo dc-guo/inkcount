@@ -1,8 +1,8 @@
 @echo off
 color 0b
-title Handwriting Demo
+title InkCount Demo
 echo =========================================================================
-echo  Launching the Handwriting Word Counter Demo Engine!
+echo  Launching InkCount (Python reference version)!
 echo =========================================================================
 echo.
 

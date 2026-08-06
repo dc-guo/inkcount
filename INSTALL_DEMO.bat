@@ -1,8 +1,8 @@
 @echo off
 color 0a
-title Installing Demo Dependencies
+title Installing InkCount Demo Dependencies
 echo =========================================================================
-echo  Preparing the Handwriting Word Counter Demo...
+echo  Preparing the InkCount demo (Python reference version)...
 echo =========================================================================
 echo.
 
