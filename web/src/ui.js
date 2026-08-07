@@ -8,8 +8,34 @@ import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
 
+/* Bumped together with the <meta name="inkcount-version"> in index.html on
+ * every release. GitHub Pages caches assets for ~10 minutes, so right after a
+ * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
+ * crashed with "Cannot set properties of null" when this code addressed an
+ * element the other version didn't have. Detect the mismatch and self-heal. */
+const APP_VERSION = '3';
+
 export function initUI() {
   const $ = (id) => document.getElementById(id);
+
+  const htmlVersion = (document.querySelector('meta[name="inkcount-version"]') || {}).content;
+  if (htmlVersion !== APP_VERSION) {
+    const KEY = 'inkcount-version-reload';
+    if (sessionStorage.getItem(KEY) !== APP_VERSION + '/' + htmlVersion) {
+      sessionStorage.setItem(KEY, APP_VERSION + '/' + htmlVersion);
+      location.reload();
+      return;
+    }
+    // Reload didn't clear it — ask the user for a hard refresh instead of
+    // limping along and crashing with a cryptic null error.
+    const err = $('error-banner');
+    if (err) {
+      err.textContent = 'InkCount just updated and your browser is mixing old and new files. ' +
+        'Please hard-refresh this page (Ctrl+Shift+R, or hold Reload on mobile).';
+      err.hidden = false;
+    }
+    return;
+  }
   const els = {
     fileInput: $('file-input'), dropZone: $('drop-zone'), sample: $('btn-sample'),
     run: $('btn-run'), reset: $('btn-reset'),
@@ -25,6 +51,18 @@ export function initUI() {
   const setStatus = (t) => { els.status.textContent = t; };
   const showError = (m) => { els.error.textContent = m; els.error.hidden = false; };
   const hideError = () => { els.error.hidden = true; };
+
+  // Raw JS internals ("Cannot set properties of null") must never be the whole
+  // message a student sees. Give context, and when the error smells like
+  // stale-cache version skew, say what actually fixes it.
+  function humanError(context, e) {
+    const raw = e && e.message ? e.message : String(e);
+    if (/Cannot (set|read) propert/i.test(raw)) {
+      return context + ' because the app\'s files are out of sync — this can happen for a few ' +
+        'minutes right after InkCount updates. Hard-refresh the page (Ctrl+Shift+R) to clear it.';
+    }
+    return context + '. Details: ' + raw;
+  }
 
   function updateRunEnabled() {
     els.run.disabled = !(state.cvReady && state.canvas && !state.running && !state.loading);
@@ -62,7 +100,7 @@ export function initUI() {
     } catch (e) {
       state.loading = false;
       setStatus('Ready.');
-      showError(e && e.message ? e.message : String(e));
+      showError(humanError('That image could not be opened', e));
     }
     updateRunEnabled();
   }
@@ -197,8 +235,7 @@ export function initUI() {
       els.progress.hidden = true;
       setStatus('Done in ' + secs + 's.');
     } catch (e) {
-      const msg = e && e.message ? e.message : String(e);
-      showError('Analysis failed: ' + msg);
+      showError(humanError('Counting failed', e));
       setStatus('Error.');
       showCount('—', 'Something went wrong.');
       els.progress.hidden = true;
@@ -240,7 +277,7 @@ export function initUI() {
       if (!resp.ok) throw new Error('sample missing (HTTP ' + resp.status + ')');
       await loadInto(await resp.blob(), 'sample_page.jpg', 'Loading sample…');
     } catch (e) {
-      showError('Could not load the sample: ' + (e && e.message ? e.message : String(e)));
+      showError(humanError('The sample page could not be loaded', e));
     }
   });
   els.run.addEventListener('click', run);
