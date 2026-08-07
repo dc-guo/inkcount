@@ -6,7 +6,7 @@ table{border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #ccc;padding
 pre{background:#f4f4f4;padding:1rem}</style></head>
 <body>
 <h1>Accuracy regression — full pipeline vs ground truth</h1>
-<p>Bounds: mean |error| ≤ 8%, worst |error| ≤ 15%.</p>
+<p>Bounds: mean |error| ≤ 5%, worst |error| ≤ 10%.</p>
 <div id="verdict">Running…</div>
 <div id="table-slot"></div>
 <pre id="json"></pre>
@@ -51,8 +51,8 @@ try {
     `<tr><th>mean |err|</th><td colspan="5">${mean.toFixed(1)}%   ·   worst ${worst.toFixed(1)}%</td></tr>`;
   document.getElementById('table-slot').appendChild(t);
 
-  if (mean > 8) failed = `mean |error| ${mean.toFixed(1)}% > 8%`;
-  else if (worst > 15) failed = `worst |error| ${worst.toFixed(1)}% > 15%`;
+  if (mean > 5) failed = `mean |error| ${mean.toFixed(1)}% > 5%`;
+  else if (worst > 10) failed = `worst |error| ${worst.toFixed(1)}% > 10%`;
 } catch (e) {
   failed = 'exception: ' + (e.message || e);
   document.getElementById('json').textContent += '\n' + (e.stack || e.message);

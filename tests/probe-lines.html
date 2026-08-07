@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>per-line probe</title>
+<style>body{font-family:system-ui;margin:2rem}pre{background:#f4f4f4;padding:1rem;white-space:pre-wrap}</style></head>
+<body>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import { loadOpenCV, withMats } from '../web/src/mats.js';
+import { decodeToCanvas } from '../web/src/decode.js';
+import { preprocess } from '../web/src/preprocess.js';
+import { segmentLines } from '../web/src/segment.js';
+import { loadModel, recognizeLines } from '../web/src/recognize.js';
+import { countWords } from '../web/src/count.js';
+
+const log = document.getElementById('log');
+const say = (s) => { log.textContent += s + '\n'; };
+try {
+  await loadOpenCV();
+  await loadModel();
+  const blob = await (await fetch('../web/samples/sample_page.jpg')).blob();
+  const canvas = await decodeToCanvas(blob, 2000);
+  const segs = await withMats(async (scope) => {
+    const pre = preprocess(canvas, scope);
+    say('textHeight=' + pre.textHeight + ' skew=' + pre.skewAngle);
+    return segmentLines(pre, scope).map((s) => ({ canvas: s.canvas, rect: s.rect }));
+  });
+  say(segs.length + ' bands:');
+  segs.forEach((s, i) => say(`  band ${i}: y=${s.rect.y} h=${s.rect.h} w=${s.rect.w}`));
+  const transcripts = await recognizeLines(segs.map((s) => s.canvas));
+  const { total, perLine, lowConfidence } = countWords(transcripts);
+  say('\nTOTAL=' + total);
+  transcripts.forEach((t, i) => say(`[${i}] (${perLine[i]}w${lowConfidence[i] ? ' FLAGGED' : ''}) "${t}"`));
+  document.title = 'PROBE3 PASS';
+  document.getElementById('verdict').textContent = 'PROBE3 PASS';
+} catch (e) {
+  say('ERROR: ' + (e.stack || e.message));
+  document.title = 'PROBE3 FAIL';
+}
+</script>
+</body>
+</html>

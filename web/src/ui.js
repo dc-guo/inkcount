@@ -4,7 +4,7 @@ import { loadOpenCV, requireCV, withMats } from './mats.js';
 import { decodeToCanvas } from './decode.js';
 import { preprocess } from './preprocess.js';
 import { segmentLines } from './segment.js';
-import { estimateWordCount } from './geometric.js';
+import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
 
@@ -17,7 +17,7 @@ export function initUI() {
     label: $('active-image-label'), imageSlot: $('image-slot'),
     total: $('result-total'), sub: $('result-sub'), estimateChip: $('estimate-chip'),
     transcriptCard: $('transcript-card'), transcriptList: $('transcript-list'),
-    overlayCard: $('overlay-card'), overlaySlot: $('overlay-slot'),
+    overlayCard: $('overlay-card'), overlaySlot: $('overlay-slot'), overlayCaption: $('overlay-caption'),
   };
 
   const state = { canvas: null, name: null, running: false, loading: false, cvReady: false };
@@ -69,14 +69,27 @@ export function initUI() {
     updateRunEnabled();
   }
 
-  function drawOverlay(grayMat, rects) {
+  function drawOverlay(grayMat, lineRects, wordBoxes) {
     const cv = requireCV();
     const canvas = document.createElement('canvas');
     cv.imshow(canvas, grayMat);
     const ctx = canvas.getContext('2d');
-    ctx.strokeStyle = '#7c5ce0';
-    ctx.lineWidth = Math.max(2, Math.round(canvas.height * 0.002));
-    for (const r of rects) ctx.strokeRect(r.x, r.y, r.w, r.h);
+    // Word blobs first (fill + thin warm stroke), line boxes on top (bold violet
+    // with a translucent wash) so both read clearly even on busy photos.
+    ctx.fillStyle = 'rgba(246, 155, 60, 0.18)';
+    ctx.strokeStyle = 'rgba(214, 116, 15, 0.9)';
+    ctx.lineWidth = Math.max(1, Math.round(canvas.height * 0.0012));
+    for (const b of wordBoxes || []) {
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    }
+    ctx.fillStyle = 'rgba(124, 92, 224, 0.07)';
+    ctx.strokeStyle = '#6a45d8';
+    ctx.lineWidth = Math.max(3, Math.round(canvas.height * 0.0035));
+    for (const r of lineRects) {
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
     return canvas;
   }
 
@@ -94,7 +107,8 @@ export function initUI() {
       }
       const count = document.createElement('span');
       count.className = 't-count';
-      count.textContent = '· ' + perLine[i] + (perLine[i] === 1 ? ' word' : ' words');
+      count.textContent = '· ' + perLine[i] + (perLine[i] === 1 ? ' word' : ' words') +
+        (lowConfidence[i] ? ' · not counted' : '');
       li.appendChild(count);
       if (lowConfidence[i]) {
         const warn = document.createElement('span');
@@ -122,17 +136,26 @@ export function initUI() {
       const staged = await withMats(async (scope) => {
         const pre = preprocess(state.canvas, scope);
         const segs = segmentLines(pre, scope);
-        const estimate = estimateWordCount(pre, segs);
-        const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect));
-        return { crops: segs.map((s) => s.canvas), estimate, overlay, skew: pre.skewAngle, lines: segs.length };
+        const est = estimateWords(pre, segs);
+        const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes);
+        return { crops: segs.map((s) => s.canvas), estimate: est.total, overlay, skew: pre.skewAngle, lines: segs.length };
       });
 
       els.overlaySlot.replaceChildren(staged.overlay);
+      staged.overlay.title = 'Open full size';
+      staged.overlay.addEventListener('click', () => {
+        staged.overlay.toBlob((blob) => {
+          if (blob) window.open(URL.createObjectURL(blob), '_blank');
+        }, 'image/png');
+      });
+      els.overlayCaption.textContent = staged.lines === 0
+        ? 'No handwritten lines were found on this image — nothing is boxed. InkCount looks for rows of English handwriting; drawings, printed pages, and non-English text won\'t register.'
+        : staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' detected on the straightened page — violet boxes are counted lines, amber patches are the ink clusters inside them.';
       els.overlayCard.hidden = false;
 
       if (staged.lines === 0) {
         showCount(0, 'No handwritten lines were detected on this image.', false);
-        showError('InkCount could not find any handwritten lines. Try a clearer, closer photo of the page.');
+        showError('InkCount could not find any handwritten lines. Try a clearer, closer photo of a handwritten page (English only).');
         setStatus('Done.');
         return;
       }
@@ -152,15 +175,16 @@ export function initUI() {
         }
       });
 
-      // Stage 3: read every line, streaming the running count.
+      // Stage 3: read every line, streaming the running count with the same
+      // hallucination-exclusion rules as the final tally.
       els.progress.max = staged.crops.length;
       els.progress.value = 0;
-      let runningTotal = 0;
+      const seen = [];
       const transcripts = await recognizeLines(staged.crops, (i, n, text) => {
-        runningTotal += text ? text.split(/\s+/).filter(Boolean).length : 0;
+        seen.push(text);
         els.progress.value = i + 1;
         setStatus('Reading line ' + (i + 1) + ' of ' + n + '…');
-        showCount(runningTotal, 'reading line ' + (i + 1) + ' of ' + n + '…', true);
+        showCount(countWords(seen).total, 'reading line ' + (i + 1) + ' of ' + n + '…', true);
       });
 
       const { total, perLine, lowConfidence } = countWords(transcripts);

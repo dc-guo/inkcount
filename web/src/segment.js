@@ -42,20 +42,37 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
   const sm = boxSmooth(proj, k);
   let peak = 0;
   for (let i = 0; i < sm.length; i++) if (sm[i] > peak) peak = sm[i];
-  const thresh = Math.max(peak * 0.10, 255 * 3);
 
-  // 2. Contiguous bands above threshold.
-  const bands = [];
-  let inBand = false, start = 0;
-  for (let i = 0; i < H; i++) {
-    if (sm[i] > thresh) {
-      if (!inBand) { inBand = true; start = i; }
-    } else if (inBand) {
-      inBand = false;
-      bands.push([start, i]);
+  const findBands = (thresh) => {
+    const out = [];
+    let inBand = false, start = 0;
+    for (let i = 0; i < H; i++) {
+      if (sm[i] > thresh) {
+        if (!inBand) { inBand = true; start = i; }
+      } else if (inBand) {
+        inBand = false;
+        out.push([start, i]);
+      }
     }
+    if (inBand) out.push([start, H]);
+    return out;
+  };
+
+  // 2. Hysteresis banding. The 10% threshold gives well-bounded bands for
+  // normal lines but silently drops short trailing lines ("at all." carries
+  // ~9% of a full line's ink) — a real counting error. Simply lowering the
+  // threshold widens EVERY band (edges sit at the threshold crossing), which
+  // bled crops into neighboring lines and double-read fragments (+9% counts).
+  // So: keep the 10% bands exactly as-is, and additionally admit 4% bands
+  // that contain no 10% core — short lines get in, existing edges don't move.
+  const floorAbs = 255 * 3;
+  const coreBands = findBands(Math.max(peak * 0.10, floorAbs));
+  const bands = [...coreBands];
+  for (const low of findBands(Math.max(peak * 0.04, floorAbs))) {
+    const hasCore = coreBands.some((c) => c[0] < low[1] && c[1] > low[0]);
+    if (!hasCore) bands.push(low);
   }
-  if (inBand) bands.push([start, H]);
+  bands.sort((a, b) => a[0] - b[0]);
 
   // 3. Horizontal ink extent of the page.
   const colHasInk = new Uint8Array(W);
@@ -73,8 +90,12 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
   //    (residual rule fragments and noise produce phantom bands the recognizer
   //    then hallucinates words onto).
   const minBandH = Math.max(6, textHeight * 0.55);
-  const minInk = 0.9 * textHeight * textHeight;
+  // Enough ink for ~2 short words. 0.9×th² (the original value) silently
+  // dropped short trailing lines like "at all." — a real counting error;
+  // 0.35×th² still rejects residual rule fragments and speckle.
+  const minInk = 0.35 * textHeight * textHeight;
   const pad = Math.trunc(textHeight * 0.45);
+  const padX = Math.trunc(textHeight * 0.8);
   const out = [];
   for (const [y0, y1] of bands) {
     if (y1 - y0 < minBandH) continue;
@@ -85,8 +106,22 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
     }
     if (ink / 255 < minInk) continue;
 
+    // Crop to THIS band's ink extent, not the page-wide text extent: a short
+    // line cropped to full page width is mostly blank paper, and the
+    // recognizer hallucinates fluent nonsense on near-empty images
+    // (measured: a 2-word line came back as 17 words).
+    let bx0 = -1, bx1 = -1;
+    for (let c = x0; c < x1; c++) {
+      let has = 0;
+      for (let r = y0; r < y1; r++) { if (data[r * W + c]) { has = 1; break; } }
+      if (has) { if (bx0 < 0) bx0 = c; bx1 = c; }
+    }
+    if (bx0 < 0) continue;
+    const cx0 = Math.max(x0, bx0 - padX);
+    const cx1 = Math.min(x1, bx1 + 1 + padX);
+
     const yy0 = Math.max(0, y0 - pad), yy1 = Math.min(H, y1 + pad);
-    const rect = new cv.Rect(x0, yy0, x1 - x0, yy1 - yy0);
+    const rect = new cv.Rect(cx0, yy0, cx1 - cx0, yy1 - yy0);
     const roi = gray.roi(rect);
     const crop = roi.clone();
     roi.delete();

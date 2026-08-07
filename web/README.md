@@ -44,16 +44,23 @@ In headless Chrome (single-threaded WASM):
 
 | Page | v1 (geometric) error | v2 error |
 |---|---|---|
-| Flat, well-spaced | −1.6% | −1.6% |
-| Ruled notebook | −7.9% | +7.9% |
-| Tilted 3.5° | **−98.4%** | −1.6% |
-| Uneven lighting | −1.6% | −4.8% |
-| Tight line spacing | **−98.4%** | −1.6% |
+| Flat, well-spaced | −1.6% | −0.5% |
+| Ruled notebook | −7.9% | +0.5% |
+| Tilted 3.5° | **−98.4%** | −0.5% |
+| Uneven lighting | −1.6% | −3.2% |
+| Tight line spacing | **−98.4%** | +0.5% |
 | Cursive script | −15.3% | **0.0%** |
-| Ruled + tilt + shadow | **−99.5%** | +3.7% |
+| Ruled + tilt + shadow | **−99.5%** | −1.1% |
 
-**v1 mean |error|: 46.1% → v2: 3.0%** (worst case 99.5% → 7.9%).
-`tests/accuracy.html` asserts mean |error| ≤ 8% and worst ≤ 15% on every run.
+**v1 mean |error|: 46.1% → v2: 0.9%** (worst case 99.5% → 3.2%).
+`tests/accuracy.html` asserts mean |error| ≤ 5% and worst ≤ 10% on every run.
+
+Two guards worth knowing about: short trailing lines (a two-word "at all.")
+are detected via low-threshold hysteresis bands and cropped to their own ink
+extent — full-width crops of short lines made the recognizer hallucinate
+fluent nonsense on the blank space. And lines whose transcript matches a
+hallucination signature (single-char spam or repetition loops) are shown
+flagged in the transcript but **excluded from the total**.
 
 > **Caveat:** these pages use handwriting *fonts*, which are more uniform than
 > real handwriting — treat the numbers as optimistic until the suite includes

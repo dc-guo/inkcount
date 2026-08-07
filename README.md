@@ -28,8 +28,8 @@ students with lecture-journal word requirements: snap the page, get the number.
 
 The v1 geometric approach collapsed on real photo conditions (−98% on a page
 tilted 3.5°). v2 straightens the page, segments lines at the handwriting's own
-scale, and reads them with a recognition model: **mean absolute error 3.0%**
-across seven ground-truth test pages in-browser (worst case 7.9%), including
+scale, and reads them with a recognition model: **mean absolute error 0.9%**
+across seven ground-truth test pages in-browser (worst case 3.2%), including
 an exact count on cursive. Full table and method in
 [`web/README.md`](web/README.md).
 

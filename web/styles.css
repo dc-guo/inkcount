@@ -116,8 +116,9 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
   box-shadow: var(--shadow-lift);
 }
 
-.card-transcript { grid-column: 1 / -1; }
-.card-overlay { grid-column: 1 / -1; }
+/* Second bento row: overlay compact on the left, transcript wide on the right. */
+.card-overlay { grid-column: 1; grid-row: 2; }
+.card-transcript { grid-column: 2; grid-row: 2; }
 
 .muted { color: var(--ink-soft); margin: 0.1rem 0 0.9rem; }
 .small { font-size: 0.86rem; }
@@ -156,6 +157,16 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
   height: auto;
   border-radius: 16px;
   box-shadow: var(--shadow);
+}
+
+/* Overlay preview stays compact — tall pages scale down instead of dominating
+ * the grid. Click opens the full-size drawing in a new tab. */
+.image-slot-compact canvas {
+  max-height: min(560px, 70vh);
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  cursor: zoom-in;
 }
 
 /* ---------- hero card ---------- */
@@ -230,6 +241,8 @@ progress::-webkit-progress-value { background: var(--violet-bright); border-radi
 
 @media (max-width: 860px) {
   .bento { grid-template-columns: 1fr; }
+  .card-overlay { grid-column: 1; grid-row: auto; }
+  .card-transcript { grid-column: 1; grid-row: auto; }
   .transcript { columns: 1; }
   .topbar-note { font-size: 0.78rem; }
 }
