@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>vendored assets</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>Vendored asset check</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script>
+(async () => {
+  const paths = [
+    '../web/vendor/opencv.js',
+    '../web/vendor/transformers/transformers-bundled.mjs',
+    '../web/vendor/transformers/ort-wasm-simd-threaded.asyncify.wasm',
+    '../web/vendor/transformers/ort-wasm-simd-threaded.asyncify.mjs',
+    '../web/vendor/libheif/libheif-bundle.js',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/config.json',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/generation_config.json',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/preprocessor_config.json',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/tokenizer.json',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/tokenizer_config.json',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/onnx/encoder_model_quantized.onnx',
+    '../web/vendor/models/Xenova/trocr-small-handwritten/onnx/decoder_model_merged_quantized.onnx',
+    '../web/samples/sample_page.jpg',
+    './fixtures/pages/expected.json',
+    './fixtures/pages/01_clean_print_like.jpg',
+    './fixtures/pages/07_realistic_combo.jpg',
+  ];
+  const log = document.getElementById('log');
+  const verdict = document.getElementById('verdict');
+  let bad = null;
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { method: 'HEAD' });
+      const len = Number(r.headers.get('content-length') || 0);
+      log.textContent += `${r.status} ${(len / 1e6).toFixed(2).padStart(7)} MB  ${p}\n`;
+      if (!r.ok || len === 0) { bad = p; break; }
+    } catch (e) { log.textContent += `ERR ${p}: ${e.message}\n`; bad = p; break; }
+  }
+  verdict.textContent = bad ? 'ASSETS FAIL — ' + bad : 'ASSETS PASS';
+  verdict.className = bad ? 'fail' : 'pass';
+  document.title = bad ? 'ASSETS FAIL' : 'ASSETS PASS';
+})();
+</script>
+</body>
+</html>

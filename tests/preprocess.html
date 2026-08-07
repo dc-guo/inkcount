@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preprocess module</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>preprocess.js</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import { loadOpenCV, withMats } from '../web/src/mats.js';
+import { decodeToCanvas } from '../web/src/decode.js';
+import { preprocess } from '../web/src/preprocess.js';
+
+const log = document.getElementById('log');
+const verdict = document.getElementById('verdict');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+let failed = null;
+const check = (name, cond, detail = '') => {
+  say(`${cond ? 'ok  ' : 'FAIL'} ${name} ${detail}`);
+  if (!cond && !failed) failed = name;
+};
+
+try {
+  await loadOpenCV();
+  say('opencv ready');
+
+  // Skewed page: estimator must recover approximately -3.5 degrees.
+  const skewBlob = await (await fetch('./fixtures/pages/03_skewed_photo.jpg')).blob();
+  const skewCanvas = await decodeToCanvas(skewBlob, 2000);
+  await withMats(async (scope) => {
+    const t0 = performance.now();
+    const r = preprocess(skewCanvas, scope);
+    const ms = Math.round(performance.now() - t0);
+    check('skew recovered', Math.abs(r.skewAngle - (-3.5)) <= 0.75, `angle=${r.skewAngle} (${ms}ms)`);
+    check('textHeight sane', r.textHeight >= 15 && r.textHeight <= 60, `textHeight=${r.textHeight}`);
+    check('planes same size', r.gray.rows === r.binary.rows && r.gray.cols === r.binary.cols);
+  });
+
+  // Straight page: near-zero skew.
+  const flatBlob = await (await fetch('./fixtures/pages/01_clean_print_like.jpg')).blob();
+  const flatCanvas = await decodeToCanvas(flatBlob, 2000);
+  await withMats(async (scope) => {
+    const r = preprocess(flatCanvas, scope);
+    check('flat page near zero', Math.abs(r.skewAngle) <= 0.5, `angle=${r.skewAngle}`);
+  });
+} catch (e) {
+  failed = failed || 'exception';
+  say('EXCEPTION: ' + (e.stack || e.message));
+}
+
+verdict.textContent = failed ? 'PREPROCESS FAIL — ' + failed : 'PREPROCESS PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'PREPROCESS FAIL' : 'PREPROCESS PASS';
+</script>
+</body>
+</html>

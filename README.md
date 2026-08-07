@@ -1,70 +1,57 @@
 # 🖋️ InkCount — Handwritten Word Counter
 
-**Proof of concept.** InkCount counts handwritten words on a photographed notebook page using pure geometric computer vision (OpenCV) — no OCR, no machine-learning inference, no cloud. It segments the page into handwritten rows, clusters ink into word-sized boxes, and compares the estimated count against a configurable minimum target.
+InkCount counts the words on a photographed page of handwriting. Built for
+students with lecture-journal word requirements: snap the page, get the number.
 
-## 🌐 Live Demo (browser version)
+**Live app:** <https://dc-guo.github.io/inkcount/>
 
-**<https://dc-guo.github.io/inkcount/>**
+- Runs **entirely in the browser** — the photo and the recognition model never
+  leave the device. No accounts, no server, no cost.
+- Reads the handwriting with an on-device recognition model (TrOCR) and counts
+  words in what it read — so connected cursive counts correctly, and you can
+  inspect the per-line transcript to judge how much to trust the number.
+- Handles phone-photo reality: camera tilt, ruled notebook lines, shadows, and
+  HEIC photos straight off an iPhone.
+- First use downloads the ~80 MB reader once; the browser caches it after that.
 
-Runs entirely in your browser with OpenCV.js. **Privacy: images are processed locally in your browser and are never uploaded to any server** — there is no backend at all.
+## Repository layout
 
-## Two implementations, one algorithm
+| Path | What it is |
+|---|---|
+| [`web/`](web/) | The app — vanilla JS modules + OpenCV.js + transformers.js. See [`web/README.md`](web/README.md) for the pipeline and measured accuracy. |
+| [`tests/`](tests/) | Browser test pages (module gates + accuracy regression with committed ground-truth fixtures). Served locally, never deployed. |
+| [`tools/`](tools/) | Fixture generator and the transformers.js bundling recipe. |
+| `app.py`, `cv_utils.py` | **v1 prototype** (Python/Streamlit, geometric ink-clustering). Kept for reference; superseded by the browser app, which uses a different and substantially more accurate algorithm. |
+| [`docs/`](docs/) | Design specs and implementation plans, including the v1→v2 decision record. |
 
-| | Where it runs | Stack |
-|---|---|---|
-| [`web/`](web/) | Any modern browser (GitHub Pages) | HTML + CSS + JavaScript + OpenCV.js 4.9.0 |
-| Repository root (`app.py`, `cv_utils.py`) | Local Python | Python + Streamlit + OpenCV (reference implementation) |
+## Accuracy, briefly
 
-The browser version of InkCount is a verified line-by-line port of `cv_utils.py` — identical parameters and control flow. On both bundled samples it produces **exactly** the same counts and box coordinates as the Python version (details and the parity table in [`web/README.md`](web/README.md)).
+The v1 geometric approach collapsed on real photo conditions (−98% on a page
+tilted 3.5°). v2 straightens the page, segments lines at the handwriting's own
+scale, and reads them with a recognition model: **mean absolute error 3.0%**
+across seven ground-truth test pages in-browser (worst case 7.9%), including
+an exact count on cursive. Full table and method in
+[`web/README.md`](web/README.md).
 
-### Architecture (browser version)
+**Honest caveat:** those pages are rendered with handwriting fonts. Validation
+against photographed real handwriting is still pending, and the accuracy
+figures should be treated as optimistic until it lands.
 
-1. **Preprocess** — grayscale → CLAHE contrast enhancement → unsharp mask
-2. **Row segmentation** — adaptive threshold → horizontal ink-projection profile → smoothed peak detection finds each handwritten row
-3. **Word clustering** — per row: adaptive threshold → directional dilation → contour bounding boxes, with wide clusters split at whitespace gaps
-4. **Verdict** — total cluster count vs. your minimum-words target → PASS / FAIL
-
-Everything happens in page JavaScript; the only files ever fetched are the site's own assets.
-
-## Test the web version locally
+## Run locally
 
 ```bash
 python -m http.server 8000
 ```
 
-Then open <http://localhost:8000/web/>. (Any static file server works; `file://` won't, because browsers block the sample-image fetches.) Automated verification pages live in [`tests/`](tests/) — smoke, math fixtures, and a full parity comparison against `tests/fixtures/reference.json`.
+Open <http://localhost:8000/web/>. (Any static server works; `file://` won't.)
 
-## Run the Python reference version
+To run the v1 Python prototype instead: `pip install -r requirements.txt`,
+then `streamlit run app.py`.
 
-```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python -m streamlit run app.py
-```
+## Limitations
 
-Windows one-click launchers (`INSTALL_DEMO.bat` / `RUN_DEMO.bat`) are also included — see [`PACKAGE_NOTES.md`](PACKAGE_NOTES.md).
-
-## Proof-of-concept limitations
-
-- The count is an **estimate** based on geometric word clustering.
-- Unusual cursive spacing may split one word into multiple clusters.
-- Very tight handwriting may merge multiple words into one cluster.
-- Lighting, page angle, shadows, notebook lines, and image quality can affect results.
-- InkCount is a proof of concept, **not** a production handwriting-recognition system.
-
-## Repository layout
-
-```text
-├── app.py                  # Streamlit UI (Python reference)
-├── cv_utils.py             # The counting pipeline (Python reference)
-├── web/                    # Browser version (deployed to GitHub Pages)
-│   ├── index.html · styles.css · app.js
-│   ├── vendor/opencv.js    # pinned OpenCV.js 4.9.0
-│   └── samples/            # machine-generated demo images
-├── tests/                  # parity + smoke test pages (not deployed)
-├── docs/                   # migration plan / porting documentation
-└── .github/workflows/deploy-pages.yml   # Pages deployment
-```
-
-Deployment: pushes to `main` publish `web/` via GitHub Actions (Settings → Pages → Source: **GitHub Actions**).
+- English handwriting only (model limitation).
+- One page per photo; heavy crossing-out, diagrams mixed into text, faint
+  pencil, or extreme blur can shift the count.
+- The count is the model's best reading of the page — the per-line transcript
+  in the app is the tool for judging it.

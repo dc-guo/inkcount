@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>decode module</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>decode.js</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import { decodeToCanvas, isHeic } from '../web/src/decode.js';
+
+const log = document.getElementById('log');
+const verdict = document.getElementById('verdict');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+let failed = null;
+const check = (name, cond, detail = '') => {
+  say(`${cond ? 'ok  ' : 'FAIL'} ${name} ${detail}`);
+  if (!cond && !failed) failed = name;
+};
+
+try {
+  // 1. JPEG decodes at natural size when under the edge cap
+  const jpegBlob = await (await fetch('./fixtures/pages/01_clean_print_like.jpg')).blob();
+  const big = await decodeToCanvas(jpegBlob, 4000);
+  check('jpeg natural size', big.width === 2100 && big.height === 2970, `${big.width}x${big.height}`);
+
+  // 2. Downscale: long edge capped at exactly 2000
+  const scaled = await decodeToCanvas(jpegBlob, 2000);
+  check('downscale long edge', Math.max(scaled.width, scaled.height) === 2000, `${scaled.width}x${scaled.height}`);
+  check('aspect preserved', Math.abs(scaled.width / scaled.height - 2100 / 2970) < 0.01);
+
+  // 3. Non-image rejects with a readable message
+  const textBlob = await (await fetch('./fixtures/pages/expected.json')).blob();
+  let threw = false, msg = '';
+  try { await decodeToCanvas(textBlob); } catch (e) { threw = true; msg = e.message; }
+  check('non-image rejects', threw && /could not be read/.test(msg), msg);
+
+  // 4. isHeic: JPEG bytes are not HEIC; synthetic ftyp+heic header is
+  check('isHeic(jpeg)=false', isHeic(await jpegBlob.arrayBuffer()) === false);
+  const fake = new Uint8Array([0,0,0,24, 0x66,0x74,0x79,0x70, 0x68,0x65,0x69,0x63, 0,0,0,0]);
+  check('isHeic(heic hdr)=true', isHeic(fake.buffer) === true);
+
+  say('\nnote: real HEIC decode untested until a genuine iPhone photo is available.');
+} catch (e) {
+  failed = failed || 'exception';
+  say('EXCEPTION: ' + (e.stack || e.message));
+}
+
+verdict.textContent = failed ? 'DECODE FAIL — ' + failed : 'DECODE PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'DECODE FAIL' : 'DECODE PASS';
+</script>
+</body>
+</html>

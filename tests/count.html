@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>count module</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>count.js</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import { countWords } from '../web/src/count.js';
+
+const log = document.getElementById('log');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+let failed = null;
+const assertEq = (got, want, name) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  say(`${ok ? 'ok  ' : 'FAIL'} ${name}: got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
+  if (!ok && !failed) failed = name;
+};
+
+assertEq(countWords(['hello world', 'three more words']).total, 5, 'basic');
+assertEq(countWords(['  spaced   out  ']).total, 2, 'whitespace collapse');
+assertEq(countWords(['']).total, 0, 'empty line');
+assertEq(countWords([]).total, 0, 'no lines');
+assertEq(countWords(['one', 'two']).perLine, [1, 1], 'perLine');
+assertEq(countWords(['a b c d e f g h i']).lowConfidence[0], true, 'degenerate flagged');
+assertEq(countWords(['a b c d e f g h i']).total, 9, 'flagged lines still counted');
+assertEq(countWords(['I am a student here']).lowConfidence[0], false, 'real short words not flagged');
+assertEq(countWords(['A dog and a cat ran']).lowConfidence[0], false, 'articles not flagged');
+assertEq(countWords(['x y z w v q']).lowConfidence[0], true, 'single-char majority flagged');
+assertEq(countWords(['hi', 'a b c d e f']).lowConfidence, [false, true], 'per-line flags');
+
+const verdict = document.getElementById('verdict');
+verdict.textContent = failed ? 'COUNT FAIL — ' + failed : 'COUNT PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'COUNT FAIL' : 'COUNT PASS';
+</script>
+</body>
+</html>

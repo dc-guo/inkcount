@@ -3,81 +3,79 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>InkCount — Handwritten Word Counter (Proof of Concept)</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cpath d='M16 5c4.6 5.7 7.2 9.4 7.2 12.4a7.2 7.2 0 1 1-14.4 0C8.8 14.4 11.4 10.7 16 5z' fill='white'/%3E%3C/svg%3E">
+<title>InkCount — count handwritten words</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c5ce0'/%3E%3Cpath d='M16 5c4.6 5.7 7.2 9.4 7.2 12.4a7.2 7.2 0 1 1-14.4 0C8.8 14.4 11.4 10.7 16 5z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <main id="app">
-  <header class="app-header">
-    <h1>🖋️ InkCount <span class="badge">Proof of Concept</span></h1>
-    <p class="subtitle">Counts handwritten words on a notebook page — geometric word-cluster estimation with OpenCV.js, no OCR, no AI inference.</p>
-    <p class="privacy-note">🔒 <strong>Privacy:</strong> your images are processed entirely in your browser and never uploaded to any server.</p>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🖋️</span>
+      <span class="brand-name">InkCount</span>
+      <span class="chip chip-soft">Proof of concept</span>
+    </div>
+    <div class="topbar-note">🔒 Photos and the reader model stay on your device — nothing is uploaded.</div>
   </header>
 
-  <section class="card" aria-label="Image input">
-    <h2>1 · Choose an image</h2>
-    <div id="drop-zone">
-      <label class="file-label" for="file-input">
-        <strong>Upload a notebook photo</strong> (JPG or PNG) — or drag &amp; drop it here
-        <input type="file" id="file-input" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+  <section class="bento">
+
+    <!-- Input card -->
+    <article class="card card-input" id="drop-zone">
+      <h2>Add a page</h2>
+      <p class="muted">A photo or screenshot of one handwritten page. JPG, PNG, WebP or HEIC.</p>
+      <label class="pill-button pill-primary" for="file-input">
+        <span>＋ Choose photo</span>
+        <input type="file" id="file-input" accept="image/*,.heic,.heif">
       </label>
-      <div class="sample-row">
-        <span>or try a built-in sample:</span>
-        <button type="button" id="btn-sample-meeting" class="btn btn-secondary">Meeting notes</button>
-        <button type="button" id="btn-sample-lecture" class="btn btn-secondary">Lecture notes</button>
+      <button type="button" id="btn-sample" class="pill-button pill-ghost">Try a sample page</button>
+      <p class="muted small" id="active-image-label">No image loaded.</p>
+      <div id="image-slot" class="image-slot"></div>
+    </article>
+
+    <!-- Hero count card -->
+    <article class="card card-hero">
+      <div class="hero-top">
+        <h2>Word count</h2>
+        <span class="chip chip-estimate" id="estimate-chip" hidden>rough estimate</span>
       </div>
-    </div>
-    <p id="active-image-label" class="active-label">No image loaded.</p>
-    <div id="canvas-original" class="canvas-slot" aria-label="Original image preview"></div>
+      <div class="hero-count"><span id="result-total">—</span></div>
+      <p class="hero-sub" id="result-sub">Choose a page and press Count.</p>
+      <div class="hero-actions">
+        <button type="button" id="btn-run" class="pill-button pill-dark" disabled>▶ Count words</button>
+        <button type="button" id="btn-reset" class="pill-button pill-ghost">Reset</button>
+      </div>
+      <p class="status" id="status-text" role="status">Starting…</p>
+      <progress id="progress" hidden></progress>
+      <div id="error-banner" class="error" role="alert" hidden></div>
+    </article>
+
+    <!-- Transcript card -->
+    <article class="card card-transcript" id="transcript-card" hidden>
+      <h2>What InkCount read</h2>
+      <p class="muted small">The count comes from these lines — skim them to judge how much to trust it.
+        Lines marked <span class="chip chip-warn">check</span> looked unreadable to the model.</p>
+      <ol id="transcript-list" class="transcript"></ol>
+    </article>
+
+    <!-- Detected lines card -->
+    <article class="card card-overlay" id="overlay-card" hidden>
+      <h2>Detected lines</h2>
+      <p class="muted small">The straightened page with each counted line boxed.</p>
+      <div id="overlay-slot" class="image-slot"></div>
+    </article>
+
   </section>
 
-  <section class="card" aria-label="Configuration and run">
-    <h2>2 · Run the analysis</h2>
-    <div class="run-row">
-      <label class="target-label" for="target-input">
-        Minimum required words
-        <input type="number" id="target-input" value="31" min="1" step="10">
-      </label>
-      <button type="button" id="btn-run" class="btn btn-primary" disabled>▶ Run Analysis</button>
-      <button type="button" id="btn-reset" class="btn btn-secondary">Reset</button>
-    </div>
-    <p id="status-text" class="status" role="status">Loading OpenCV.js…</p>
-    <progress id="progress" hidden></progress>
-    <div id="error-banner" class="error" role="alert" hidden></div>
-  </section>
-
-  <section class="card" id="results-section" aria-label="Results" hidden>
-    <h2>3 · Result</h2>
-    <div id="result-banner" class="banner"></div>
-    <div class="metrics">
-      <div class="metric"><span class="metric-value" id="result-total">–</span><span class="metric-label">estimated word clusters</span></div>
-      <div class="metric"><span class="metric-value" id="result-lines">–</span><span class="metric-label">handwritten rows detected</span></div>
-    </div>
-  </section>
-
-  <section class="card" id="previews-section" aria-label="Debug previews" hidden>
-    <h2>4 · How the estimate was made</h2>
-    <details open>
-      <summary>Line segmentation preview (orange bands = detected ink rows, green boxes = final rows, blue = raw fragments)</summary>
-      <div id="canvas-segmentation" class="canvas-slot"></div>
-    </details>
-    <h3>Word clusters per line (red boxes = counted clusters)</h3>
-    <div id="line-results"></div>
-  </section>
-
-  <footer class="app-footer">
-    <h3>Proof-of-concept limitations</h3>
-    <ul>
-      <li>The count is an estimate based on geometric word clustering.</li>
-      <li>Unusual cursive spacing may split one word into multiple clusters.</li>
-      <li>Very tight handwriting may merge multiple words into one cluster.</li>
-      <li>Lighting, page angle, shadows, notebook lines, and image quality can affect results.</li>
-      <li>This is a proof of concept, not a production handwriting-recognition system.</li>
-    </ul>
-    <p class="fineprint">InkCount runs OpenCV.js 4.9.0 locally in your browser. Algorithm identical to the Python reference implementation in <a href="https://github.com/dc-guo/inkcount">the InkCount repository</a>.</p>
+  <footer class="foot">
+    <strong>Limitations.</strong> English handwriting only. The count is the model's best reading of the page —
+    unusual spacing, heavy crossing-out, faint pencil, or diagrams mixed into text can shift it.
+    First use downloads the ~80&nbsp;MB reader once; afterwards it works offline.
+    <span class="muted">Built on OpenCV.js 4.9.0 + TrOCR-small-handwritten · <a href="https://github.com/dc-guo/inkcount">source</a></span>
   </footer>
+
 </main>
-<script src="./app.js"></script>
+<script type="module" src="./app.js"></script>
 </body>
 </html>

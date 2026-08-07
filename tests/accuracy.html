@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>accuracy regression</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}
+table{border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #ccc;padding:.3rem .7rem;text-align:right}td:first-child,th:first-child{text-align:left}
+pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>Accuracy regression — full pipeline vs ground truth</h1>
+<p>Bounds: mean |error| ≤ 8%, worst |error| ≤ 15%.</p>
+<div id="verdict">Running…</div>
+<div id="table-slot"></div>
+<pre id="json"></pre>
+<script type="module">
+import { loadOpenCV, withMats } from '../web/src/mats.js';
+import { decodeToCanvas } from '../web/src/decode.js';
+import { preprocess } from '../web/src/preprocess.js';
+import { segmentLines } from '../web/src/segment.js';
+import { loadModel, recognizeLines } from '../web/src/recognize.js';
+import { countWords } from '../web/src/count.js';
+
+const verdict = document.getElementById('verdict');
+const rows = [];
+let failed = null;
+
+try {
+  await loadOpenCV();
+  await loadModel();
+  const expected = await (await fetch('./fixtures/pages/expected.json')).json();
+
+  for (const [name, exp] of Object.entries(expected)) {
+    const blob = await (await fetch(`./fixtures/pages/${name}.jpg`)).blob();
+    const canvas = await decodeToCanvas(blob, 2000);
+    const t0 = performance.now();
+    const crops = await withMats(async (scope) => segmentLines(preprocess(canvas, scope), scope).map((s) => s.canvas));
+    const transcripts = await recognizeLines(crops);
+    const { total } = countWords(transcripts);
+    const secs = (performance.now() - t0) / 1000;
+    const errPct = (total - exp.words) / exp.words * 100;
+    rows.push({ name, trueWords: exp.words, counted: total, errPct: +errPct.toFixed(1),
+                lines: crops.length, secs: +secs.toFixed(1) });
+    document.getElementById('json').textContent = JSON.stringify(rows, null, 2);
+  }
+
+  const absErrs = rows.map((r) => Math.abs(r.errPct));
+  const mean = absErrs.reduce((a, b) => a + b, 0) / absErrs.length;
+  const worst = Math.max(...absErrs);
+
+  const t = document.createElement('table');
+  t.innerHTML = '<tr><th>page</th><th>true</th><th>counted</th><th>error</th><th>lines</th><th>secs</th></tr>' +
+    rows.map((r) => `<tr><td>${r.name}</td><td>${r.trueWords}</td><td>${r.counted}</td><td>${r.errPct > 0 ? '+' : ''}${r.errPct}%</td><td>${r.lines}</td><td>${r.secs}</td></tr>`).join('') +
+    `<tr><th>mean |err|</th><td colspan="5">${mean.toFixed(1)}%   ·   worst ${worst.toFixed(1)}%</td></tr>`;
+  document.getElementById('table-slot').appendChild(t);
+
+  if (mean > 8) failed = `mean |error| ${mean.toFixed(1)}% > 8%`;
+  else if (worst > 15) failed = `worst |error| ${worst.toFixed(1)}% > 15%`;
+} catch (e) {
+  failed = 'exception: ' + (e.message || e);
+  document.getElementById('json').textContent += '\n' + (e.stack || e.message);
+}
+
+verdict.textContent = failed ? 'ACCURACY FAIL — ' + failed : 'ACCURACY PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'ACCURACY FAIL' : 'ACCURACY PASS';
+</script>
+</body>
+</html>

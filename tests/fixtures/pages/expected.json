@@ -1,0 +1,9 @@
+{
+  "01_clean_print_like": { "words": 189, "lines": 15 },
+  "02_ruled_notebook": { "words": 189, "lines": 15 },
+  "03_skewed_photo": { "words": 189, "lines": 15, "skewDeg": -3.5 },
+  "04_shadow_lighting": { "words": 189, "lines": 15 },
+  "05_cramped_lines": { "words": 189, "lines": 15 },
+  "06_cursive_script": { "words": 189, "lines": 20 },
+  "07_realistic_combo": { "words": 189, "lines": 15, "skewDeg": -2.5 }
+}
