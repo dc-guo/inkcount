@@ -35,13 +35,21 @@ try {
     const transcripts = await recognizeLines(crops);
     const { total } = countWords(transcripts);
     const secs = (performance.now() - t0) / 1000;
+    if (exp.words === 0) {
+      // Non-text pages: the only acceptable count is exactly zero.
+      rows.push({ name, trueWords: 0, counted: total, errPct: total === 0 ? 0 : NaN,
+                  lines: crops.length, secs: +secs.toFixed(1) });
+      if (total !== 0 && !failed) failed = `${name}: counted ${total} on a page with no handwriting`;
+      document.getElementById('json').textContent = JSON.stringify(rows, null, 2);
+      continue;
+    }
     const errPct = (total - exp.words) / exp.words * 100;
     rows.push({ name, trueWords: exp.words, counted: total, errPct: +errPct.toFixed(1),
                 lines: crops.length, secs: +secs.toFixed(1) });
     document.getElementById('json').textContent = JSON.stringify(rows, null, 2);
   }
 
-  const absErrs = rows.map((r) => Math.abs(r.errPct));
+  const absErrs = rows.filter((r) => r.trueWords > 0).map((r) => Math.abs(r.errPct));
   const mean = absErrs.reduce((a, b) => a + b, 0) / absErrs.length;
   const worst = Math.max(...absErrs);
 
@@ -51,8 +59,8 @@ try {
     `<tr><th>mean |err|</th><td colspan="5">${mean.toFixed(1)}%   ·   worst ${worst.toFixed(1)}%</td></tr>`;
   document.getElementById('table-slot').appendChild(t);
 
-  if (mean > 5) failed = `mean |error| ${mean.toFixed(1)}% > 5%`;
-  else if (worst > 10) failed = `worst |error| ${worst.toFixed(1)}% > 10%`;
+  if (!failed && mean > 5) failed = `mean |error| ${mean.toFixed(1)}% > 5%`;
+  else if (!failed && worst > 10) failed = `worst |error| ${worst.toFixed(1)}% > 10%`;
 } catch (e) {
   failed = 'exception: ' + (e.message || e);
   document.getElementById('json').textContent += '\n' + (e.stack || e.message);

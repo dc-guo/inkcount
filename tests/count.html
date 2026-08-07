@@ -34,6 +34,8 @@ assertEq(countWords(['x y z w v q']).lowConfidence[0], true, 'single-char majori
 assertEq(countWords(['A half of the first time of the first time of the time of the first time']).lowConfidence[0], true, 'repetition loop flagged');
 assertEq(countWords(['that teaching decisions should depend on who is in the room, not just on the']).lowConfidence[0], false, 'normal repetitive English not flagged');
 assertEq(countWords(['hi', 'a b c d e f']).lowConfidence, [false, true], 'per-line flags');
+assertEq(countWords(['a b c d']).lowConfidence[0], true, 'four-token letter spam flagged');
+assertEq(countWords(['I saw a dog']).lowConfidence[0], false, 'four real words not flagged');
 
 const verdict = document.getElementById('verdict');
 verdict.textContent = failed ? 'COUNT FAIL — ' + failed : 'COUNT PASS';

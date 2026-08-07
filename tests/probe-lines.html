@@ -18,7 +18,9 @@ const say = (s) => { log.textContent += s + '\n'; };
 try {
   await loadOpenCV();
   await loadModel();
-  const blob = await (await fetch('../web/samples/sample_page.jpg')).blob();
+  const img = new URLSearchParams(location.search).get('img') || '../web/samples/sample_page.jpg';
+  say('image: ' + img);
+  const blob = await (await fetch(img)).blob();
   const canvas = await decodeToCanvas(blob, 2000);
   const segs = await withMats(async (scope) => {
     const pre = preprocess(canvas, scope);

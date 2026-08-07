@@ -99,6 +99,11 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
   const out = [];
   for (const [y0, y1] of bands) {
     if (y1 - y0 < minBandH) continue;
+    // A text line is about as tall as the handwriting: measured raw bands run
+    // 1.3–2.0× textHeight even for cursive. Taller bands are drawings, photos,
+    // or merged artwork — recognizing them produces phantom words (a
+    // user-submitted illustration read as "5 words").
+    if (y1 - y0 > textHeight * 2.5) continue;
     let ink = 0;
     for (let r = y0; r < y1; r++) {
       const base = r * W;
@@ -117,6 +122,39 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
       if (has) { if (bx0 < 0) bx0 = c; bx1 = c; }
     }
     if (bx0 < 0) continue;
+
+    // Handwriting is mostly paper (stroke coverage ~8–20%); solid artwork is
+    // not. Reject bands whose tight bounding box is over 40% ink.
+    let inkTight = 0;
+    for (let r = y0; r < y1; r++) {
+      const base = r * W;
+      for (let c = bx0; c <= bx1; c++) inkTight += data[base + c];
+    }
+    const density = (inkTight / 255) / ((y1 - y0) * (bx1 + 1 - bx0));
+    if (density > 0.4) continue;
+
+    // A text band is full of letter-sized pieces. Line-art bands pass the
+    // density test (drawings are sparse strokes too) but their components are
+    // wires, frames and hatching at wildly un-letter-like sizes — measured on
+    // an illustration the recognizer then read as "# Jersey" etc. Require a
+    // majority of the band's components to be letter-height.
+    {
+      const roi = binary.roi(new cv.Rect(bx0, y0, bx1 + 1 - bx0, y1 - y0));
+      const bandMat = roi.clone();
+      roi.delete();
+      const labels = new cv.Mat(), stats = new cv.Mat(), cents = new cv.Mat();
+      const n = cv.connectedComponentsWithStats(bandMat, labels, stats, cents, 8, cv.CV_32S);
+      let comps = 0, letterSized = 0;
+      for (let i = 1; i < n; i++) {
+        const ch = stats.data32S[i * 5 + cv.CC_STAT_HEIGHT];
+        const carea = stats.data32S[i * 5 + cv.CC_STAT_AREA];
+        if (carea < 12) continue;
+        comps++;
+        if (ch >= textHeight * 0.35 && ch <= textHeight * 2.0) letterSized++;
+      }
+      bandMat.delete(); labels.delete(); stats.delete(); cents.delete();
+      if (comps < 2 || letterSized / comps < 0.6) continue;
+    }
     const cx0 = Math.max(x0, bx0 - padX);
     const cx1 = Math.min(x1, bx1 + 1 + padX);
 

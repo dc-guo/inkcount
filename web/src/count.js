@@ -23,7 +23,7 @@ export function countWords(transcripts) {
     perLine.push(tokens.length);
 
     let degenerate = false;
-    if (tokens.length >= 5) {
+    if (tokens.length >= 4) {
       const singles = tokens.filter((t) => t.length === 1 && t !== 'a' && t !== 'I' && t !== 'A').length;
       degenerate = singles / tokens.length > 0.6;
     }

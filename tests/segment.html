@@ -34,8 +34,10 @@ try {
       }
       return segs.length;
     });
-    const ok = Math.abs(got - exp.lines) <= 2;
-    say(`${ok ? 'ok  ' : 'FAIL'} ${name}: lines=${got} expected=${exp.lines}±2`);
+    // Zero-line pages (illustrations, non-text) must be EXACTLY zero — a
+    // single phantom band becomes phantom words downstream.
+    const ok = exp.lines === 0 ? got === 0 : Math.abs(got - exp.lines) <= 2;
+    say(`${ok ? 'ok  ' : 'FAIL'} ${name}: lines=${got} expected=${exp.lines}${exp.lines === 0 ? ' exactly' : '±2'}`);
     if (!ok && !failed) failed = name;
   }
 } catch (e) {

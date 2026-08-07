@@ -13,9 +13,15 @@ export function estimateWords({ binary, textHeight }, bands) {
   const cv = requireCV();
   const kw = Math.max(2, Math.trunc(textHeight * 0.62));
   const kh = Math.max(1, Math.trunc(textHeight * 0.25));
+  // Counting filter: strict, so specks never inflate the estimate.
   const minW = textHeight * 0.42;
   const minH = textHeight * 0.42;
   const minArea = textHeight * textHeight * 0.12;
+  // Display filter: loose, so EVERY word gets a box — thin words like "I"
+  // and "a" fail the counting filter but must still be drawn. Only dots and
+  // speckle (punctuation, noise) stay unboxed.
+  const visH = Math.max(2, textHeight * 0.18);
+  const visArea = Math.max(6, textHeight * textHeight * 0.03);
 
   const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kw, kh));
   let total = 0;
@@ -34,10 +40,8 @@ export function estimateWords({ binary, textHeight }, bands) {
       const w = stats.data32S[i * 5 + cv.CC_STAT_WIDTH];
       const h = stats.data32S[i * 5 + cv.CC_STAT_HEIGHT];
       const area = stats.data32S[i * 5 + cv.CC_STAT_AREA];
-      if (w >= minW && h >= minH && area >= minArea) {
-        total++;
-        boxes.push({ x: rect.x + x, y: rect.y + y, w, h });
-      }
+      if (w >= minW && h >= minH && area >= minArea) total++;
+      if (h >= visH && area >= visArea) boxes.push({ x: rect.x + x, y: rect.y + y, w, h });
     }
     band.delete(); merged.delete(); labels.delete(); stats.delete(); centroids.delete();
   }

@@ -103,6 +103,59 @@ def render_page(name, font_path, font_size=54, ruled=False, skew_deg=0.0,
     return path, drawn
 
 
+def render_illustration(name, seed=11):
+    """Busy line-art scene with no handwriting — buildings, poles, clouds and a
+    vertical glyph sign, mimicking the user-reported anime-illustration input.
+    The correct word count for this page is exactly 0."""
+    rng = random.Random(seed)
+    W, H = 1500, 2600
+    img = Image.new("RGB", (W, H), (238, 234, 248))
+    d = ImageDraw.Draw(img)
+
+    for _ in range(26):  # cloud blobs
+        x, y = rng.randint(-150, W), rng.randint(0, H // 2)
+        w, h = rng.randint(140, 460), rng.randint(60, 190)
+        d.ellipse([x, y, x + w, y + h], fill=(250, 248, 253), outline=(180, 170, 210), width=3)
+
+    bx = W - 640  # building with window grid
+    d.rectangle([bx, 300, W - 40, H - 200], fill=(246, 243, 252), outline=(60, 50, 90), width=6)
+    for row in range(12):
+        for col in range(4):
+            wx = bx + 50 + col * 140
+            wy = 380 + row * 175
+            d.rectangle([wx, wy, wx + 95, wy + 120], outline=(60, 50, 90), width=4)
+
+    d.line([300, 150, 310, H - 150], fill=(50, 42, 80), width=14)  # pole
+    d.line([650, 400, 655, H - 150], fill=(50, 42, 80), width=10)
+    for i in range(9):  # wires
+        y0 = rng.randint(180, 700)
+        d.arc([120, y0, W - 100, y0 + rng.randint(120, 380)], 190, 350, fill=(70, 60, 100), width=4)
+
+    sx, sy = bx - 210, 800  # vertical sign with glyph-like marks (non-Latin look)
+    d.rounded_rectangle([sx, sy, sx + 150, sy + 760], radius=24, fill=(252, 250, 254), outline=(60, 50, 90), width=6)
+    gy = sy + 40
+    for _ in range(6):
+        for _ in range(rng.randint(4, 7)):
+            x1 = sx + rng.randint(22, 70)
+            y1 = gy + rng.randint(0, 70)
+            d.line([x1, y1, x1 + rng.randint(20, 60), y1 + rng.randint(-18, 30)], fill=(60, 50, 90), width=6)
+            d.line([x1 + rng.randint(0, 40), y1 - 12, x1 + rng.randint(10, 50), y1 + 44], fill=(60, 50, 90), width=5)
+        gy += 120
+
+    for _ in range(120):  # foreground foliage hatching
+        x, y = rng.randint(0, W // 2), rng.randint(H - 700, H)
+        d.arc([x, y, x + rng.randint(60, 220), y + rng.randint(40, 160)],
+              rng.randint(0, 180), rng.randint(180, 360), fill=(90, 80, 120), width=4)
+
+    arr = np.array(img)
+    noise = np.random.default_rng(seed).normal(0, 3.0, arr.shape).astype(np.float32)
+    arr = np.clip(arr.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, name + ".jpg")
+    cv2.imwrite(path, cv2.cvtColor(arr, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    return path
+
+
 CASES = [
     ("01_clean_print_like", dict(font_path=INK_FREE, ruled=False, skew_deg=0.0, shadow=False, line_gap=1.9)),
     ("02_ruled_notebook",   dict(font_path=INK_FREE, ruled=True,  skew_deg=0.0, shadow=False, line_gap=1.9)),
@@ -117,3 +170,5 @@ if __name__ == "__main__":
     for name, kw in CASES:
         path, drawn = render_page(name, **kw)
         print(f"{name}: {drawn} words -> {path}")
+    ipath = render_illustration("08_illustration")
+    print(f"08_illustration: 0 words -> {ipath}")

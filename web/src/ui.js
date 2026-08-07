@@ -15,7 +15,7 @@ export function initUI() {
     run: $('btn-run'), reset: $('btn-reset'),
     status: $('status-text'), progress: $('progress'), error: $('error-banner'),
     label: $('active-image-label'), imageSlot: $('image-slot'),
-    total: $('result-total'), sub: $('result-sub'), estimateChip: $('estimate-chip'),
+    total: $('result-total'), sub: $('result-sub'),
     transcriptCard: $('transcript-card'), transcriptList: $('transcript-list'),
     overlayCard: $('overlay-card'), overlaySlot: $('overlay-slot'), overlayCaption: $('overlay-caption'),
   };
@@ -33,7 +33,6 @@ export function initUI() {
   function clearResults() {
     els.total.textContent = '—';
     els.sub.textContent = 'Choose a page and press Count.';
-    els.estimateChip.hidden = true;
     els.transcriptCard.hidden = true;
     els.overlayCard.hidden = true;
     els.transcriptList.replaceChildren();
@@ -41,10 +40,9 @@ export function initUI() {
     els.progress.hidden = true;
   }
 
-  function showCount(n, sub, isEstimate) {
+  function showCount(n, sub) {
     els.total.textContent = String(n);
     els.sub.textContent = sub;
-    els.estimateChip.hidden = !isEstimate;
   }
 
   async function loadInto(source, name, loadingMessage) {
@@ -131,14 +129,16 @@ export function initUI() {
     els.reset.disabled = true;
     const t0 = performance.now();
     try {
-      // Stage 1: straighten, segment, instant geometric estimate.
+      // Stage 1: straighten and segment. (Geometry is used for the overlay's
+      // word boxes only — never for a displayed count: rough estimates were
+      // wildly wrong on non-handwriting images, e.g. 230 on an illustration.)
       setStatus('Straightening and reading the page layout…');
       const staged = await withMats(async (scope) => {
         const pre = preprocess(state.canvas, scope);
         const segs = segmentLines(pre, scope);
         const est = estimateWords(pre, segs);
         const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes);
-        return { crops: segs.map((s) => s.canvas), estimate: est.total, overlay, skew: pre.skewAngle, lines: segs.length };
+        return { crops: segs.map((s) => s.canvas), overlay, skew: pre.skewAngle, lines: segs.length };
       });
 
       els.overlaySlot.replaceChildren(staged.overlay);
@@ -154,13 +154,13 @@ export function initUI() {
       els.overlayCard.hidden = false;
 
       if (staged.lines === 0) {
-        showCount(0, 'No handwritten lines were detected on this image.', false);
+        showCount(0, 'No handwritten lines were detected on this image.');
         showError('InkCount could not find any handwritten lines. Try a clearer, closer photo of a handwritten page (English only).');
         setStatus('Done.');
         return;
       }
 
-      showCount(staged.estimate, 'across ' + staged.lines + ' lines — refining with the handwriting reader…', true);
+      els.sub.textContent = staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' found — reading them now…';
 
       // Stage 2: recognition model (downloads once, then cached by the browser).
       setStatus('Loading the handwriting reader…');
@@ -184,30 +184,23 @@ export function initUI() {
         seen.push(text);
         els.progress.value = i + 1;
         setStatus('Reading line ' + (i + 1) + ' of ' + n + '…');
-        showCount(countWords(seen).total, 'reading line ' + (i + 1) + ' of ' + n + '…', true);
+        showCount(countWords(seen).total, 'so far — reading line ' + (i + 1) + ' of ' + n + '…');
       });
 
       const { total, perLine, lowConfidence } = countWords(transcripts);
       const flagged = lowConfidence.filter(Boolean).length;
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       showCount(total,
-        'words on this page · ' + staged.lines + ' lines · ' + secs + 's' +
-        (flagged ? ' · ' + flagged + ' line' + (flagged > 1 ? 's' : '') + ' worth checking' : ''),
-        false);
+        'words on this page · ' + staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' · ' + secs + 's' +
+        (flagged ? ' · ' + flagged + ' line' + (flagged > 1 ? 's' : '') + ' not counted' : ''));
       renderTranscript(transcripts, perLine, lowConfidence);
       els.progress.hidden = true;
       setStatus('Done in ' + secs + 's.');
     } catch (e) {
-      // Recognition failed — keep the geometric estimate if we got that far.
       const msg = e && e.message ? e.message : String(e);
-      if (els.estimateChip.hidden === false) {
-        showError('The handwriting reader failed to load, so this is the rough geometric estimate only.\n(' + msg + ')');
-        setStatus('Done (estimate only).');
-      } else {
-        showError('Analysis failed: ' + msg);
-        setStatus('Error.');
-        showCount('—', 'Something went wrong.', false);
-      }
+      showError('Analysis failed: ' + msg);
+      setStatus('Error.');
+      showCount('—', 'Something went wrong.');
       els.progress.hidden = true;
     } finally {
       state.running = false;
