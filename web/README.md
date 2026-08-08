@@ -27,9 +27,10 @@ photo ─▶ decode ─▶ preprocess ─▶ segment ─▶ recognize ─▶ cou
 4. **Recognize** (`src/recognize.js`) — `Xenova/trocr-small-handwritten`
    (q8 ONNX, ~65 MB) through transformers.js, one line crop at a time,
    fully served from this site's own origin.
-5. **Count** (`src/count.js`) — whitespace tokens across line transcripts,
-   with degenerate-output detection so hallucinated lines are flagged
-   (`check` chip) instead of silently trusted.
+5. **Count** (`src/count.js`) — whitespace tokens containing at least one
+   letter or digit ("Wow!" is one word; a lone misread "&" is none), with
+   degenerate-output detection so hallucinated lines are flagged
+   (`check` chip) and excluded rather than silently trusted.
 
 While the model downloads on first use, a fast geometric estimate
 (`src/geometric.js`) shows a clearly-labelled rough count; it is also the

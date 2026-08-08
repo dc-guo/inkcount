@@ -36,6 +36,11 @@ assertEq(countWords(['that teaching decisions should depend on who is in the roo
 assertEq(countWords(['hi', 'a b c d e f']).lowConfidence, [false, true], 'per-line flags');
 assertEq(countWords(['a b c d']).lowConfidence[0], true, 'four-token letter spam flagged');
 assertEq(countWords(['I saw a dog']).lowConfidence[0], false, 'four real words not flagged');
+assertEq(countWords(['Wow ! So cool.']).total, 3, 'standalone punctuation not counted');
+assertEq(countWords(['Wow & So cool.']).total, 3, 'misread symbol token not counted');
+assertEq(countWords(['& ! . ?']).total, 0, 'pure symbol line counts zero');
+assertEq(countWords(['Wow! So cool.']).total, 3, 'attached punctuation unchanged');
+assertEq(countWords(['chapter 4 and $20']).total, 4, 'digit tokens count as words');
 
 const verdict = document.getElementById('verdict');
 verdict.textContent = failed ? 'COUNT FAIL — ' + failed : 'COUNT PASS';
