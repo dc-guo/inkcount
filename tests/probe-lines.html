@@ -22,13 +22,18 @@ try {
   say('image: ' + img);
   const blob = await (await fetch(img)).blob();
   const canvas = await decodeToCanvas(blob, 2000);
-  const segs = await withMats(async (scope) => {
+  const { segs, rejected } = await withMats(async (scope) => {
     const pre = preprocess(canvas, scope);
     say('textHeight=' + pre.textHeight + ' skew=' + pre.skewAngle);
-    return segmentLines(pre, scope).map((s) => ({ canvas: s.canvas, rect: s.rect }));
+    const raw = segmentLines(pre, scope);
+    // .map() would drop the `rejected` property attached to the array.
+    return { segs: raw.map((s) => ({ canvas: s.canvas, rect: s.rect })), rejected: raw.rejected || [] };
   });
   say(segs.length + ' bands:');
   segs.forEach((s, i) => say(`  band ${i}: y=${s.rect.y} h=${s.rect.h} w=${s.rect.w}`));
+  const rej = rejected;
+  say(rej.length + ' rejected:');
+  rej.forEach((r) => say(`  y=${r.y0}-${r.y1}: ${r.reason} (${r.detail})`));
   const transcripts = await recognizeLines(segs.map((s) => s.canvas));
   const { total, perLine, lowConfidence } = countWords(transcripts);
   say('\nTOTAL=' + total);

@@ -97,19 +97,26 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
   const pad = Math.trunc(textHeight * 0.45);
   const padX = Math.trunc(textHeight * 0.8);
   const out = [];
+  // Every rejected candidate is recorded with its reason and attached to the
+  // returned array as `out.rejected` — the app's ?debug=1 mode and the probe
+  // page draw them, so "why did my line disappear?" is answerable from a
+  // screenshot instead of a guessing game.
+  const rejected = [];
+  out.rejected = rejected;
+  const reject = (y0, y1, reason, detail) => rejected.push({ y0, y1, reason, detail });
   for (const [y0, y1] of bands) {
-    if (y1 - y0 < minBandH) continue;
+    if (y1 - y0 < minBandH) { reject(y0, y1, 'too-short', (y1 - y0) + 'px < ' + minBandH.toFixed(0) + 'px'); continue; }
     // A text line is about as tall as the handwriting: measured raw bands run
     // 1.3–2.0× textHeight even for cursive. Taller bands are drawings, photos,
     // or merged artwork — recognizing them produces phantom words (a
     // user-submitted illustration read as "5 words").
-    if (y1 - y0 > textHeight * 2.5) continue;
+    if (y1 - y0 > textHeight * 2.5) { reject(y0, y1, 'too-tall', (y1 - y0) + 'px > 2.5×th=' + (textHeight * 2.5).toFixed(0) + 'px'); continue; }
     let ink = 0;
     for (let r = y0; r < y1; r++) {
       const base = r * W;
       for (let c = x0; c < x1; c++) ink += data[base + c];
     }
-    if (ink / 255 < minInk) continue;
+    if (ink / 255 < minInk) { reject(y0, y1, 'too-little-ink', ((ink / 255) | 0) + ' < ' + minInk.toFixed(0)); continue; }
 
     // Crop to THIS band's ink extent, not the page-wide text extent: a short
     // line cropped to full page width is mostly blank paper, and the
@@ -131,7 +138,7 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
       for (let c = bx0; c <= bx1; c++) inkTight += data[base + c];
     }
     const density = (inkTight / 255) / ((y1 - y0) * (bx1 + 1 - bx0));
-    if (density > 0.4) continue;
+    if (density > 0.4) { reject(y0, y1, 'too-dense', (density * 100).toFixed(0) + '% ink > 40%'); continue; }
 
     // A text band is full of letter-sized pieces. Line-art bands pass the
     // density test (drawings are sparse strokes too) but their components are
@@ -153,7 +160,11 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
         if (ch >= textHeight * 0.35 && ch <= textHeight * 2.0) letterSized++;
       }
       bandMat.delete(); labels.delete(); stats.delete(); cents.delete();
-      if (comps < 2 || letterSized / comps < 0.6) continue;
+      if (comps < 2 || letterSized / comps < 0.6) {
+        reject(y0, y1, 'not-letter-sized',
+          letterSized + '/' + comps + ' components letter-height (need ≥60%, th=' + textHeight.toFixed(0) + 'px)');
+        continue;
+      }
     }
     const cx0 = Math.max(x0, bx0 - padX);
     const cx1 = Math.min(x1, bx1 + 1 + padX);

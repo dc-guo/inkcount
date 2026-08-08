@@ -105,11 +105,25 @@ export function initUI() {
     updateRunEnabled();
   }
 
-  function drawOverlay(grayMat, lineRects, wordBoxes) {
+  const DEBUG = new URLSearchParams(location.search).has('debug');
+
+  function drawOverlay(grayMat, lineRects, wordBoxes, rejectedBands) {
     const cv = requireCV();
     const canvas = document.createElement('canvas');
     cv.imshow(canvas, grayMat);
     const ctx = canvas.getContext('2d');
+    if (DEBUG && rejectedBands && rejectedBands.length) {
+      ctx.strokeStyle = '#d32f2f';
+      ctx.fillStyle = '#d32f2f';
+      ctx.lineWidth = Math.max(2, Math.round(canvas.height * 0.002));
+      ctx.setLineDash([10, 6]);
+      ctx.font = 'bold ' + Math.max(18, Math.round(canvas.height * 0.014)) + 'px system-ui, sans-serif';
+      for (const r of rejectedBands) {
+        ctx.strokeRect(4, r.y0, canvas.width - 8, r.y1 - r.y0);
+        ctx.fillText('rejected: ' + r.reason + ' (' + r.detail + ')', 12, Math.max(20, r.y0 - 6));
+      }
+      ctx.setLineDash([]);
+    }
     // Word blobs first (fill + thin warm stroke), line boxes on top (bold violet
     // with a translucent wash) so both read clearly even on busy photos.
     ctx.fillStyle = 'rgba(246, 155, 60, 0.18)';
@@ -175,8 +189,9 @@ export function initUI() {
         const pre = preprocess(state.canvas, scope);
         const segs = segmentLines(pre, scope);
         const est = estimateWords(pre, segs);
-        const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes);
-        return { crops: segs.map((s) => s.canvas), overlay, skew: pre.skewAngle, lines: segs.length };
+        const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes, segs.rejected);
+        if (DEBUG && segs.rejected) console.log('[inkcount debug] rejected bands:', JSON.stringify(segs.rejected));
+        return { crops: segs.map((s) => s.canvas), overlay, skew: pre.skewAngle, lines: segs.length, rejectedCount: (segs.rejected || []).length };
       });
 
       els.overlaySlot.replaceChildren(staged.overlay);
@@ -186,9 +201,10 @@ export function initUI() {
           if (blob) window.open(URL.createObjectURL(blob), '_blank');
         }, 'image/png');
       });
-      els.overlayCaption.textContent = staged.lines === 0
+      els.overlayCaption.textContent = (staged.lines === 0
         ? 'No handwritten lines were found on this image — nothing is boxed. InkCount looks for rows of English handwriting; drawings, printed pages, and non-English text won\'t register.'
-        : staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' detected on the straightened page — violet boxes are counted lines, amber patches are the ink clusters inside them.';
+        : staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' detected on the straightened page — violet boxes are counted lines, amber patches are the ink clusters inside them.')
+        + (DEBUG && staged.rejectedCount ? ' [debug: ' + staged.rejectedCount + ' rejected band' + (staged.rejectedCount > 1 ? 's' : '') + ' in red]' : '');
       els.overlayCard.hidden = false;
 
       if (staged.lines === 0) {
