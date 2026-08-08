@@ -1,4 +1,4 @@
-name: Deploy GitHub Pages
+name: Test and Deploy
 
 on:
   push:
@@ -15,7 +15,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run verification suite (all gates + UI walkthrough)
+        run: node tools/ci/run-suite.mjs
+        env:
+          CI: "true"
+      - name: Upload suite report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-report
+          path: tools/ci/report.json
+          if-no-files-found: ignore
+
   deploy:
+    needs: test
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

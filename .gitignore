@@ -21,3 +21,6 @@ Thumbs.db
 # Local backups and archives
 *_backup/
 *.zip
+
+# CI output
+tools/ci/report.json
