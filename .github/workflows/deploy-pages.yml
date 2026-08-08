@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # global WebSocket (needed by the CDP harness) exists from Node 22
       - name: Run verification suite (all gates + UI walkthrough)
         run: node tools/ci/run-suite.mjs
         env:
