@@ -13,7 +13,7 @@ import { countWords } from './count.js';
  * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
  * crashed with "Cannot set properties of null" when this code addressed an
  * element the other version didn't have. Detect the mismatch and self-heal. */
-const APP_VERSION = '5';
+const APP_VERSION = '6';
 
 export function initUI() {
   const $ = (id) => document.getElementById(id);
@@ -93,6 +93,8 @@ export function initUI() {
       state.canvas = canvas;
       state.name = name;
       clearResults();
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', 'Photo of your page: ' + name);
       els.imageSlot.replaceChildren(canvas);
       els.label.textContent = name + ' · ' + canvas.width + ' × ' + canvas.height + ' px';
       state.loading = false;
@@ -194,6 +196,10 @@ export function initUI() {
         return { crops: segs.map((s) => s.canvas), overlay, skew: pre.skewAngle, lines: segs.length, rejectedCount: (segs.rejected || []).length };
       });
 
+      staged.overlay.setAttribute('role', 'img');
+      staged.overlay.setAttribute('aria-label',
+        staged.lines === 0 ? 'The straightened page — no handwritten lines found'
+          : 'The straightened page with ' + staged.lines + ' detected line' + (staged.lines > 1 ? 's' : '') + ' boxed');
       els.overlaySlot.replaceChildren(staged.overlay);
       staged.overlay.title = 'Open full size';
       staged.overlay.addEventListener('click', () => {
@@ -249,7 +255,10 @@ export function initUI() {
         (flagged ? ' · ' + flagged + ' line' + (flagged > 1 ? 's' : '') + ' not counted' : ''));
       renderTranscript(transcripts, perLine, lowConfidence);
       els.progress.hidden = true;
-      setStatus('Done in ' + secs + 's.');
+      // The word count lives here too: #status-text is the page's polite live
+      // region, so screen readers hear the result without a chatty live
+      // region on the streaming counter.
+      setStatus('Done in ' + secs + 's — ' + total + ' words.');
     } catch (e) {
       showError(humanError('Counting failed', e));
       setStatus('Error.');
@@ -298,6 +307,17 @@ export function initUI() {
   });
   els.run.addEventListener('click', run);
   els.reset.addEventListener('click', reset);
+
+  // Ask the browser not to evict our ~80 MB cached model under storage
+  // pressure (iOS especially). Fire-and-forget; denial is fine.
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (_) {}
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'SW_UPDATED') {
+        showError('InkCount updated in the background — reload this page to get the newest version.');
+      }
+    });
+  }
 
   setStatus('Preparing the analyzer…');
   updateRunEnabled();

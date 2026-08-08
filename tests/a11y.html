@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>accessibility gate</title>
+<style>
+body{font-family:system-ui;margin:2rem}
+#verdict{font-size:1.4rem;font-weight:bold}.pass{color:#18a34a}.fail{color:#e53935}
+pre{background:#f4f4f4;padding:1rem;white-space:pre-wrap}
+iframe{width:1100px;height:700px;border:1px solid #ccc}
+</style>
+</head>
+<body>
+<h1>axe-core audit of the app (post-run DOM)</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<iframe id="app-frame" src="../web/index.html?a11ytest=1" title="InkCount under audit"></iframe>
+<script>
+(async () => {
+  const verdict = document.getElementById('verdict');
+  const log = document.getElementById('log');
+  const say = (s) => { log.textContent += s + '\n'; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    const frame = document.getElementById('app-frame');
+    await new Promise((r) => { frame.addEventListener('load', r, { once: true }); });
+    const idoc = () => frame.contentDocument;
+
+    const until = async (fn, ms, label) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        try { if (fn()) return; } catch (_) {}
+        await sleep(500);
+      }
+      throw new Error('timeout: ' + label);
+    };
+
+    say('waiting for app ready…');
+    await until(() => / — Ready$/.test(idoc().title || ''), 300000, 'app ready');
+
+    say('running the sample so the audit covers the full result DOM…');
+    idoc().getElementById('btn-sample').click();
+    await until(() => idoc().getElementById('btn-run').disabled === false, 60000, 'run enabled');
+    idoc().getElementById('btn-run').click();
+    await until(() => /^Done/.test(idoc().getElementById('status-text').textContent || ''), 600000, 'run done');
+
+    // axe must live in the SAME realm as the document it audits — handing the
+    // iframe's document to the parent's axe throws "arguments are invalid".
+    await new Promise((res, rej) => {
+      const s = idoc().createElement('script');
+      s.src = './vendor/axe/axe.min.js'; // resolved against the iframe's /web/ base
+      s.onload = res;
+      s.onerror = () => rej(new Error('axe failed to load inside the app frame'));
+      idoc().head.appendChild(s);
+    });
+    const axeIn = frame.contentWindow.axe;
+    say('auditing with axe-core ' + axeIn.version + '…');
+    const results = await axeIn.run(idoc(), { resultTypes: ['violations'] });
+    const bad = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+    for (const v of results.violations) {
+      say(`[${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node${v.nodes.length > 1 ? 's' : ''})`);
+      for (const n of v.nodes.slice(0, 3)) {
+        say('    ' + n.target.join(' '));
+        for (const check of (n.any || []).concat(n.all || [])) {
+          if (check.data) say('      measured: ' + JSON.stringify(check.data));
+        }
+      }
+    }
+    if (results.violations.length === 0) say('no violations at any impact level');
+
+    if (bad.length === 0) {
+      verdict.textContent = 'A11Y PASS' + (results.violations.length ? ' (minor findings above)' : '');
+      verdict.className = 'pass';
+      document.title = 'A11Y PASS';
+    } else {
+      verdict.textContent = 'A11Y FAIL — ' + bad.length + ' serious/critical violation' + (bad.length > 1 ? 's' : '');
+      verdict.className = 'fail';
+      document.title = 'A11Y FAIL';
+    }
+  } catch (e) {
+    verdict.textContent = 'A11Y FAIL — ' + e.message;
+    verdict.className = 'fail';
+    document.title = 'A11Y FAIL';
+  }
+})();
+</script>
+</body>
+</html>

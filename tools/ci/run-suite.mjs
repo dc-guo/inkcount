@@ -29,7 +29,7 @@ const CDP_PORT = PORT + 1222;
 const PROFILE = path.join(os.tmpdir(), `inkcount-ci-profile-${process.pid}`);
 const REPORT = path.join(ROOT, 'tools', 'ci', 'report.json');
 
-const DEFAULT_GATES = 'smoke,assets,count,decode,preprocess,segment,recognize,accuracy';
+const DEFAULT_GATES = 'smoke,assets,count,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
 const GATES = (process.env.GATES || DEFAULT_GATES).split(',').filter((g) => g && g !== 'none');
 
 function chromeBin() {
@@ -177,6 +177,8 @@ async function runGate(name) {
     const title = await pollTitle(page.id, (t) => /(PASS|FAIL|ERROR)/.test(t || ''), budget, name);
     out.title = title;
     out.verdict = await evalJS(page.cdp, `(document.getElementById('verdict')||{}).textContent || ''`);
+    out.log = await evalJS(page.cdp, `((document.getElementById('log')||{}).textContent || '').slice(0, 4000)`);
+    if (!/PASS/.test(title) && out.log) log(out.log);
     if (name === 'accuracy') {
       try { out.table = JSON.parse(await evalJS(page.cdp, `document.getElementById('json').textContent || '[]'`)); } catch {}
     }
@@ -192,6 +194,53 @@ async function runGate(name) {
     } catch {}
   } finally { await page.close(); }
   log(`[gate] ${name}: ${out.pass ? 'PASS' : 'FAIL'} ${out.title || out.error || ''}`);
+  return out;
+}
+
+/* The pwa gate is not a tests/*.html page: it exercises the service worker by
+ * loading the app, confirming SW control, then STOPPING the static server and
+ * proving the app still reaches Ready entirely from cache (shell + the 80 MB
+ * vendor runtime). The server is restarted afterwards for later stages. */
+async function runPwaGate() {
+  const page = await newPage();
+  const out = { gate: 'pwa', pass: false };
+  const freshReady = async (originBefore, label) => pollEval(page.cdp,
+    `String(performance.timeOrigin) + '|' + (document.title.endsWith(' — Ready') ? '1' : '0')`,
+    (v) => { const p = String(v).split('|'); return Number(p[0]) !== originBefore && p[1] === '1'; },
+    300000, label);
+  try {
+    await page.goto(`${BASE}/web/index.html`);
+    await pollTitle(page.id, (t) => / — Ready$/.test(t || ''), 300000, 'pwa first ready');
+    await pollEval(page.cdp,
+      `!!(navigator.serviceWorker && navigator.serviceWorker.controller)`,
+      (v) => v === true, 60000, 'sw controlling');
+
+    // Second load warms the vendor cache under SW control.
+    let origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?swwarm=1`);
+    await freshReady(origin, 'pwa warm reload');
+
+    // Offline: no server at all. Shell precache + vendor cache must carry a
+    // full boot to Ready.
+    origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    // server.close() alone waits for keep-alive sockets from earlier gates and
+    // can wait forever — destroy them so close resolves immediately.
+    server.closeAllConnections?.();
+    await Promise.race([
+      new Promise((res) => server.close(res)),
+      sleep(5000),
+    ]);
+    server = null;
+    await page.goto(`${BASE}/web/index.html?offline=1`);
+    await freshReady(origin, 'pwa offline boot');
+    out.pass = true;
+  } catch (e) {
+    out.error = e.message;
+  } finally {
+    await page.close();
+    if (!server) server = await startServer(PORT, ROOT);
+  }
+  log(`[gate] pwa: ${out.pass ? 'PASS' : 'FAIL'} ${out.error || 'offline boot reached Ready'}`);
   return out;
 }
 
@@ -301,7 +350,7 @@ async function runUI() {
   log('[boot] endpoint up');
 
   const results = [];
-  for (const g of GATES) results.push(await runGate(g));
+  for (const g of GATES) results.push(g === 'pwa' ? await runPwaGate() : await runGate(g));
   results.push(await runUI());
 
   const allPass = results.every((r) => r.pass);

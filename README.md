@@ -1,9 +1,10 @@
-# 🖋️ InkCount — Handwritten Word Counter
+# 🖋️ InkCount — Handwritten Word Counter (Beta)
 
 InkCount counts the words on a photographed page of handwriting. Built for
 students with lecture-journal word requirements: snap the page, get the number.
 
-**Live app:** <https://dc-guo.github.io/inkcount/>
+**Live app:** <https://dc-guo.github.io/inkcount/> ·
+**Device self-test:** <https://dc-guo.github.io/inkcount/device-test.html>
 
 - Runs **entirely in the browser** — the photo and the recognition model never
   leave the device. No accounts, no server, no cost.
@@ -20,22 +21,29 @@ students with lecture-journal word requirements: snap the page, get the number.
 |---|---|
 | [`web/`](web/) | The app — vanilla JS modules + OpenCV.js + transformers.js. See [`web/README.md`](web/README.md) for the pipeline and measured accuracy. |
 | [`tests/`](tests/) | Browser test pages (module gates + accuracy regression with committed ground-truth fixtures). Served locally, never deployed. |
-| [`tools/`](tools/) | Fixture generator and the transformers.js bundling recipe. |
+| [`tools/`](tools/) | Fixture generator, the transformers.js bundling recipe, and `tools/ci/` — the verification suite GitHub Actions runs before every deploy. |
 | `app.py`, `cv_utils.py` | **v1 prototype** (Python/Streamlit, geometric ink-clustering). Kept for reference; superseded by the browser app, which uses a different and substantially more accurate algorithm. |
 | [`docs/`](docs/) | Design specs and implementation plans, including the v1→v2 decision record. |
 
-## Accuracy, briefly
+## Accuracy, honestly
 
-The v1 geometric approach collapsed on real photo conditions (−98% on a page
-tilted 3.5°). v2 straightens the page, segments lines at the handwriting's own
-scale, and reads them with a recognition model: **mean absolute error 0.9%**
-across seven ground-truth test pages in-browser (worst case 3.2%), including
-an exact count on cursive. Full table and method in
-[`web/README.md`](web/README.md).
+Two kinds of evidence, stated separately:
 
-**Honest caveat:** those pages are rendered with handwriting fonts. Validation
-against photographed real handwriting is still pending, and the accuracy
-figures should be treated as optimistic until it lands.
+**Rendered fixtures (9 pages, committed, asserted on every deploy):** mean
+absolute error under the CI bound of 5% (recently measured ~1–2%), worst case
+under 10%, exact on cursive, exactly 0 on a no-handwriting illustration. Full
+table and method in [`web/README.md`](web/README.md).
+
+**Photographed real handwriting:** one validated page so far (all lines
+detected; count judged correct by its author after four user-reported issues
+were fixed and locked in as fixtures). This column is thin — real pages are
+what actually find bugs, and we are actively collecting them:
+**[contribute a page](docs/CONTRIBUTING_FIXTURES.md)** (5 minutes, public-repo
+privacy rules inside).
+
+Every deploy is gated: GitHub Actions runs all ten verification gates (unit,
+segmentation, recognition, accuracy bounds, accessibility, offline/PWA) plus a
+full UI walkthrough in headless Chrome, and a red gate blocks the release.
 
 ## Run locally
 

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InkCount device self-test</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cpath d='M16 5c4.6 5.7 7.2 9.4 7.2 12.4a7.2 7.2 0 1 1-14.4 0C8.8 14.4 11.4 10.7 16 5z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./styles.css">
+<style>
+  main { max-width: 720px; margin: 0 auto; padding: 1.2rem 1rem 3rem; }
+  .check { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid #eceaf4; }
+  .check .mark { width: 1.6rem; flex: none; font-weight: 700; }
+  .check .name { flex: none; width: 11.5rem; font-weight: 600; }
+  .check .detail { color: var(--ink-soft); font-size: 0.92rem; overflow-wrap: anywhere; }
+  .ok .mark { color: #14622d; }
+  .bad .mark { color: #a11e17; }
+  .skip .mark { color: var(--ink-soft); }
+  #verdict { font-size: 1.5rem; font-weight: 800; margin: 1rem 0 0.25rem; }
+  #verdict.pass { color: #14622d; }
+  #verdict.issues { color: #a11e17; }
+  pre { background: #efedf7; border-radius: 12px; padding: 0.8rem; font-size: 0.78rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🖋️ InkCount device self-test</h1>
+  <p class="muted">Runs the whole InkCount engine on <em>this</em> device. When it finishes,
+  screenshot this page (including the details box) and send it to the developer.</p>
+
+  <div id="checks"></div>
+
+  <div class="check" id="heic-row">
+    <span class="mark">…</span>
+    <span class="name">iPhone photo (HEIC)</span>
+    <span class="detail">
+      <label class="btn btn-secondary" style="display:inline-block; cursor:pointer;">
+        Pick a photo taken with the camera
+        <input id="heic-input" type="file" accept="image/*,.heic,.heif" style="display:none">
+      </label>
+      <span id="heic-detail"> — optional, but the most valuable check on an iPhone.</span>
+    </span>
+  </div>
+
+  <div id="verdict">Running…</div>
+  <p class="muted small">Screenshot everything above and below this line.</p>
+  <pre id="details">collecting…</pre>
+</main>
+
+<script>
+if ('serviceWorker' in navigator) {
+  addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function () {});
+  });
+}
+</script>
+<script type="module">
+import { loadOpenCV, withMats } from './src/mats.js';
+import { decodeToCanvas, isHeic } from './src/decode.js';
+import { preprocess } from './src/preprocess.js';
+import { segmentLines } from './src/segment.js';
+import { loadModel, recognizeLines } from './src/recognize.js';
+import { countWords } from './src/count.js';
+
+const checksEl = document.getElementById('checks');
+const details = [];
+const rows = [];
+let failures = 0;
+
+function row(name, state, detail) {
+  const div = document.createElement('div');
+  div.className = 'check ' + state;
+  div.innerHTML = '<span class="mark">' + (state === 'ok' ? '✓' : state === 'bad' ? '✗' : '—') + '</span>' +
+    '<span class="name"></span><span class="detail"></span>';
+  div.querySelector('.name').textContent = name;
+  div.querySelector('.detail').textContent = detail;
+  checksEl.appendChild(div);
+  rows.push({ name, state, detail });
+  details.push((state === 'ok' ? 'OK  ' : state === 'bad' ? 'FAIL' : 'SKIP') + ' ' + name + ': ' + detail);
+  if (state === 'bad') failures++;
+  document.getElementById('details').textContent = details.join('\n');
+}
+
+function finish() {
+  const v = document.getElementById('verdict');
+  if (failures === 0) { v.textContent = 'PASS — InkCount works on this device'; v.className = 'pass'; document.title = 'DEVICE PASS'; }
+  else { v.textContent = 'ISSUES — ' + failures + ' check' + (failures > 1 ? 's' : '') + ' failed'; v.className = 'issues'; document.title = 'DEVICE ISSUES'; }
+}
+
+const t = (ms) => (ms / 1000).toFixed(1) + 's';
+
+(async () => {
+  row('Browser', 'ok', navigator.userAgent);
+  row('Hardware', 'ok', (navigator.hardwareConcurrency || '?') + ' cores' +
+    (navigator.deviceMemory ? ', ~' + navigator.deviceMemory + ' GB RAM class' : ''));
+
+  try {
+    await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+    row('WebAssembly', 'ok', 'supported');
+  } catch (e) { row('WebAssembly', 'bad', e.message); finish(); return; }
+
+  let t0 = performance.now();
+  try {
+    await loadOpenCV();
+    row('Image engine (OpenCV)', 'ok', 'loaded in ' + t(performance.now() - t0));
+  } catch (e) { row('Image engine (OpenCV)', 'bad', e.message); finish(); return; }
+
+  t0 = performance.now();
+  try {
+    await loadModel();
+    row('Handwriting reader (65 MB)', 'ok', 'ready in ' + t(performance.now() - t0));
+  } catch (e) { row('Handwriting reader (65 MB)', 'bad', e.message); finish(); return; }
+
+  try {
+    t0 = performance.now();
+    const blob = await (await fetch('./samples/sample_page.jpg')).blob();
+    const canvas = await decodeToCanvas(blob);
+    const crops = await withMats(async (scope) => segmentLines(preprocess(canvas, scope), scope).map((s) => s.canvas));
+    const transcripts = await recognizeLines(crops);
+    const { total } = countWords(transcripts);
+    const secs = performance.now() - t0;
+    const perLine = Math.round(secs / Math.max(1, crops.length));
+    if (total === 188 && crops.length === 16) {
+      row('Counting accuracy', 'ok', '188 words / 16 lines on the test page (expected 188/16), ' + t(secs) + ' total, ~' + perLine + ' ms/line');
+    } else {
+      row('Counting accuracy', 'bad', 'got ' + total + ' words / ' + crops.length + ' lines, expected 188 / 16');
+    }
+  } catch (e) { row('Counting accuracy', 'bad', e.message); }
+
+  try {
+    const persisted = navigator.storage && navigator.storage.persist ? await navigator.storage.persist() : false;
+    const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+    row('Storage', persisted ? 'ok' : 'skip',
+      (persisted ? 'persistent granted' : 'persistence not granted (model may re-download later)') +
+      (est ? ' · quota ~' + Math.round((est.quota || 0) / 1e6) + ' MB' : ''));
+  } catch (e) { row('Storage', 'skip', e.message); }
+
+  row('Offline support', navigator.serviceWorker && navigator.serviceWorker.controller ? 'ok' : 'skip',
+    navigator.serviceWorker && navigator.serviceWorker.controller
+      ? 'service worker active — works offline after this visit'
+      : 'not yet controlled — reload this page once, then re-check');
+
+  finish();
+})();
+
+document.getElementById('heic-input').addEventListener('change', async (e) => {
+  const rowEl = document.getElementById('heic-row');
+  const detail = document.getElementById('heic-detail');
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    const heic = isHeic(buf);
+    const canvas = await decodeToCanvas(file);
+    rowEl.className = 'check ok';
+    rowEl.querySelector('.mark').textContent = '✓';
+    detail.textContent = ' ' + (heic ? 'HEIC' : 'non-HEIC ' + (file.type || 'image')) +
+      ' decoded: ' + canvas.width + '×' + canvas.height + ' px' + (heic ? '' : ' (pick a camera photo on an iPhone to test HEIC)');
+    details.push('OK   HEIC/photo decode: ' + (heic ? 'HEIC ' : '') + canvas.width + 'x' + canvas.height);
+  } catch (err) {
+    rowEl.className = 'check bad';
+    rowEl.querySelector('.mark').textContent = '✗';
+    detail.textContent = ' failed: ' + err.message;
+    details.push('FAIL HEIC/photo decode: ' + err.message);
+    failures++;
+  }
+  document.getElementById('details').textContent = details.join('\n');
+  finish();
+});
+</script>
+</body>
+</html>

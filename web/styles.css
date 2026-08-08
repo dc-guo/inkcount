@@ -64,7 +64,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
   background: var(--ink);
   font-size: 1.1rem;
 }
-.brand-name { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+.brand-name { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; margin: 0; display: inline; }
 
 .chip {
   display: inline-block;
@@ -147,7 +147,25 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
 .pill-dark { background: var(--ink); color: #fff; }
 .pill-ghost { background: var(--lilac); color: var(--violet); }
 
-.pill-button input[type="file"] { display: none; }
+/* Visually hidden but still focusable — display:none would make the file
+ * input unreachable by keyboard. The label shows the ring via :focus-within. */
+.pill-button { position: relative; }
+.pill-button input[type="file"] {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pill-button:focus-visible,
+.pill-button:focus-within,
+a:focus-visible {
+  outline: 3px solid var(--violet-bright);
+  outline-offset: 2px;
+}
 
 .image-slot { margin-top: 0.4rem; }
 .image-slot canvas, .image-slot img {
@@ -234,7 +252,10 @@ progress::-webkit-progress-value { background: var(--violet-bright); border-radi
   font-size: 0.88rem;
 }
 .foot a { color: var(--violet); }
-.foot .muted { display: block; margin-top: 0.4rem; color: #9b7c53; }
+/* axe: --ink-soft misses 4.5:1 on the cream footer tint at this size. */
+/* axe: the old tan (#9b7c53) measured 3.54:1 on the cream footer — below the
+ * 4.5:1 requirement at this font size. #59516e measures ~6.8:1. */
+.foot .muted { display: block; margin-top: 0.4rem; color: #59516e; }
 
 /* ---------- responsive ---------- */
 
