@@ -13,7 +13,7 @@ import { countWords } from './count.js';
  * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
  * crashed with "Cannot set properties of null" when this code addressed an
  * element the other version didn't have. Detect the mismatch and self-heal. */
-const APP_VERSION = '3';
+const APP_VERSION = '4';
 
 export function initUI() {
   const $ = (id) => document.getElementById(id);
