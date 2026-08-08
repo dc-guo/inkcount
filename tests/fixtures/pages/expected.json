@@ -6,5 +6,6 @@
   "05_cramped_lines": { "words": 189, "lines": 16 },
   "06_cursive_script": { "words": 189, "lines": 20 },
   "07_realistic_combo": { "words": 189, "lines": 16, "skewDeg": -2.5 },
-  "08_illustration": { "words": 0, "lines": 0 }
+  "08_illustration": { "words": 0, "lines": 0 },
+  "09_large_loose_line": { "words": 31, "lines": 4 }
 }

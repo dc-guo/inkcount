@@ -103,6 +103,35 @@ def render_page(name, font_path, font_size=54, ruled=False, skew_deg=0.0,
     return path, drawn
 
 
+def render_large_loose_line(name, seed=13):
+    """Reproduces a real-photo failure: the last line written noticeably larger
+    and looser than the rest, landing near 2.6-2.9x the page's median letter
+    height. An earlier 2.5x band-height cap rejected exactly such a line."""
+    rng = random.Random(seed)
+    lines = [
+        ("Deo is my mentor. Deo is kinda", 62),
+        ("cool. I guess. In his free time, he", 62),
+        ("likes to play card games and League of", 62),
+        ("Legends. He is a nerd. Wow! So cool.", 104),
+    ]
+    W = 2100
+    img = Image.new("RGB", (W, 780), (214, 211, 205))
+    d = ImageDraw.Draw(img)
+    y = 40
+    for text, size in lines:
+        font = ImageFont.truetype(r"C:\Windows\Fonts\segoesc.ttf", size)
+        d.text((40 + rng.randint(0, 14), y + rng.randint(-4, 4)), text, font=font, fill=(24, 22, 30))
+        y += int(size * 1.75)
+    arr = np.array(img)
+    M = cv2.getRotationMatrix2D((W / 2, 390), 1.2, 1.0)
+    arr = cv2.warpAffine(arr, M, (W, 780), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    noise = np.random.default_rng(seed).normal(0, 4.0, arr.shape).astype(np.float32)
+    arr = np.clip(arr.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+    path = os.path.join(OUT, name + ".jpg")
+    cv2.imwrite(path, cv2.cvtColor(arr, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+    return path
+
+
 def render_illustration(name, seed=11):
     """Busy line-art scene with no handwriting — buildings, poles, clouds and a
     vertical glyph sign, mimicking the user-reported anime-illustration input.
@@ -172,3 +201,5 @@ if __name__ == "__main__":
         print(f"{name}: {drawn} words -> {path}")
     ipath = render_illustration("08_illustration")
     print(f"08_illustration: 0 words -> {ipath}")
+    lpath = render_large_loose_line("09_large_loose_line")
+    print(f"09_large_loose_line: 31 words -> {lpath}")

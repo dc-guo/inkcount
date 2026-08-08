@@ -106,11 +106,12 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
   const reject = (y0, y1, reason, detail) => rejected.push({ y0, y1, reason, detail });
   for (const [y0, y1] of bands) {
     if (y1 - y0 < minBandH) { reject(y0, y1, 'too-short', (y1 - y0) + 'px < ' + minBandH.toFixed(0) + 'px'); continue; }
-    // A text line is about as tall as the handwriting: measured raw bands run
-    // 1.3–2.0× textHeight even for cursive. Taller bands are drawings, photos,
-    // or merged artwork — recognizing them produces phantom words (a
-    // user-submitted illustration read as "5 words").
-    if (y1 - y0 > textHeight * 2.5) { reject(y0, y1, 'too-tall', (y1 - y0) + 'px > 2.5×th=' + (textHeight * 2.5).toFixed(0) + 'px'); continue; }
+    // A text line is about as tall as the handwriting — but real handwriting
+    // breathes: a user's real photo had a last line at 2.6× the page's median
+    // letter height (rejected by an earlier 2.5× cap by TWO pixels). 3.2×
+    // accommodates loose writing; the aspect guard below keeps blob-shaped
+    // artwork out of the reopened range.
+    if (y1 - y0 > textHeight * 3.2) { reject(y0, y1, 'too-tall', (y1 - y0) + 'px > 3.2×th=' + (textHeight * 3.2).toFixed(0) + 'px'); continue; }
     let ink = 0;
     for (let r = y0; r < y1; r++) {
       const base = r * W;
@@ -129,6 +130,15 @@ export function segmentLines({ gray, binary, textHeight }, scope) {
       if (has) { if (bx0 < 0) bx0 = c; bx1 = c; }
     }
     if (bx0 < 0) continue;
+
+    // Text rows are much wider than tall; glyph stacks, signs and art blobs
+    // are roughly square. Applied only to tall bands so short lines like a
+    // trailing "at all." are never affected.
+    const bandH = y1 - y0, bandW = bx1 + 1 - bx0;
+    if (bandH > textHeight * 2 && bandW / bandH < 2.0) {
+      reject(y0, y1, 'not-row-shaped', 'aspect ' + (bandW / bandH).toFixed(1) + ' < 2.0 for a tall band');
+      continue;
+    }
 
     // Handwriting is mostly paper (stroke coverage ~8–20%); solid artwork is
     // not. Reject bands whose tight bounding box is over 40% ink.
