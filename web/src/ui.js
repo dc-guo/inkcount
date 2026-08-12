@@ -88,7 +88,13 @@ export function initUI() {
     const no = document.createElement('button');
     no.type = 'button'; no.className = 'pill-button pill-ghost confirm-no'; no.textContent = 'No';
     const cancel = () => { pair.remove(); trigger.hidden = false; trigger.focus(); };
-    yes.addEventListener('click', () => { pair.remove(); trigger.hidden = false; onYes(); });
+    yes.addEventListener('click', () => {
+      pair.remove(); trigger.hidden = false; onYes();
+      if (!document.contains(trigger)) {
+        const s = document.getElementById('status-text');
+        if (s) { s.tabIndex = -1; s.focus(); }
+      }
+    });
     no.addEventListener('click', cancel);
     pair.addEventListener('keydown', (e) => { if (e.key === 'Escape') cancel(); });
     pair.append(label, yes, no);
@@ -293,6 +299,7 @@ export function initUI() {
   async function analyzePhoto() {
     // Stage 1 of the old run(), moved to load time: warnings and the overlay
     // appear in ~2-3 s, BEFORE the ~15 s model read.
+    const mine = state.photo;
     setStatus('Straightening and reading the page layout…');
     const staged = await withMats(async (scope) => {
       const pre = preprocess(state.photo.canvas, scope);
@@ -303,7 +310,7 @@ export function initUI() {
       return { crops: segs.map((s) => s.canvas), overlayCanvas: overlay, skewAngle: pre.skewAngle,
         textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length };
     });
-    if (!state.photo) return; // photo was cleared while analyzing
+    if (state.photo !== mine) return; // photo was cleared or replaced while analyzing
     Object.assign(state.photo, staged);
     showStagedOverlay();
     renderWarnings(evaluatePreflight(staged));
@@ -343,6 +350,7 @@ export function initUI() {
     state.running = true;
     hideError();
     els.reset.disabled = true;
+    els.newEntryBtn.disabled = true;
     updateRunEnabled();
     const t0 = performance.now();
     const baseTotal = state.entry ? entryTotal(state.entry) : 0;
@@ -401,6 +409,7 @@ export function initUI() {
     } finally {
       state.running = false;
       els.reset.disabled = false;
+      els.newEntryBtn.disabled = false;
       updateRunEnabled();
     }
   }
@@ -415,9 +424,10 @@ export function initUI() {
     els.progress.hidden = true;
     hideError();
     if (state.selectedPage >= 0 && state.entry) renderSelectedPage();
-    else { els.transcriptCard.hidden = true; els.overlayCard.hidden = true; }
+    else { els.transcriptCard.hidden = true; els.overlayCard.hidden = true; els.transcriptList.replaceChildren(); els.overlaySlot.replaceChildren(); }
     renderEntry();
     setStatus(state.cvReady ? (state.entry ? 'Ready — add another page.' : 'Ready — add a page.') : 'Preparing the analyzer…');
+    updateRunEnabled();
   }
 
   function startNewEntry() {
@@ -437,6 +447,7 @@ export function initUI() {
     hideError();
     renderEntry();
     setStatus('New entry started — add a page.');
+    updateRunEnabled();
   }
 
   els.fileInput.addEventListener('change', () => {
@@ -463,6 +474,7 @@ export function initUI() {
   els.run.addEventListener('click', countCurrentPhoto);
   els.reset.addEventListener('click', clearPhoto);
   els.newEntryBtn.addEventListener('click', () => {
+    if (state.running) return;
     const unsaved = state.entry && state.entry.pages.length > 0; // Task 4 adds "&& !isEntrySaved(state.entry)"
     if (unsaved) inlineConfirm(els.newEntryBtn, startNewEntry);
     else startNewEntry();
