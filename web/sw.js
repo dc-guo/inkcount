@@ -11,7 +11,7 @@
  * CACHE_VERSION bumps together with the page's inkcount-version meta and
  * APP_VERSION in src/ui.js on every release.
  */
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const SHELL_CACHE = 'inkcount-shell-' + CACHE_VERSION;
 const VENDOR_CACHE = 'inkcount-vendor-' + CACHE_VERSION;
 

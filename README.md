@@ -13,6 +13,8 @@ students with lecture-journal word requirements: snap the page, get the number.
   inspect the per-line transcript to judge how much to trust the number.
 - Handles phone-photo reality: camera tilt, ruled notebook lines, shadows, and
   HEIC photos straight off an iPhone.
+- Journal entries can span **multiple pages** — add each page, watch one running total, and remove or review pages individually.
+- **Private history**: tap "Save entry" to keep a local log (date, counts, small preview). It lives only in your browser — nothing is uploaded, and photos are never kept.
 - First use downloads the ~80 MB reader once; the browser caches it after that.
 
 ## Repository layout
@@ -41,7 +43,7 @@ what actually find bugs, and we are actively collecting them:
 **[contribute a page](docs/CONTRIBUTING_FIXTURES.md)** (5 minutes, public-repo
 privacy rules inside).
 
-Every deploy is gated: GitHub Actions runs all ten verification gates (unit,
+Every deploy is gated: GitHub Actions runs all twelve verification gates (unit,
 segmentation, recognition, accuracy bounds, accessibility, offline/PWA) plus a
 full UI walkthrough in headless Chrome, and a red gate blocks the release.
 
@@ -59,7 +61,6 @@ then `streamlit run app.py`.
 ## Limitations
 
 - English handwriting only (model limitation).
-- One page per photo; heavy crossing-out, diagrams mixed into text, faint
-  pencil, or extreme blur can shift the count.
+- One page per photo (use "Add another page" for multi-page entries); heavy crossing-out, diagrams mixed into text, faint pencil, or extreme blur can shift the count.
 - The count is the model's best reading of the page — the per-line transcript
   in the app is the tool for judging it.
