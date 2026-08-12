@@ -50,6 +50,7 @@
       <div class="hero-actions">
         <button type="button" id="btn-run" class="pill-button pill-dark" disabled><span aria-hidden="true">▶ </span>Count words</button>
         <button type="button" id="btn-reset" class="pill-button pill-ghost">Clear photo</button>
+        <button type="button" id="btn-save-entry" class="pill-button pill-primary" disabled>Save entry</button>
         <button type="button" id="btn-new-entry" class="pill-button pill-ghost">New entry</button>
       </div>
       <p class="status" id="status-text" role="status">Starting…</p>
@@ -70,6 +71,15 @@
       <h2>Detected lines</h2>
       <p class="muted small" id="overlay-caption">The straightened page with each counted line boxed.</p>
       <div id="overlay-slot" class="image-slot image-slot-compact"></div>
+    </article>
+
+    <!-- Past entries card -->
+    <article class="card card-history" id="history-card" hidden>
+      <h2>Past entries</h2>
+      <p class="muted small">Past entries stay only in this browser on this device — never uploaded.
+        Photos aren't kept; just the counts and a small preview.</p>
+      <ul id="history-list" class="history-list"></ul>
+      <button type="button" id="btn-clear-history" class="pill-button pill-ghost">Clear all</button>
     </article>
 
   </section>

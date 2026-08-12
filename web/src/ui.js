@@ -7,8 +7,9 @@ import { segmentLines } from './segment.js';
 import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
-import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb } from './store.js';
+import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb, loadHistory, saveToHistory, deleteHistoryRow, clearHistory, isEntrySaved, storageAvailable } from './store.js';
 import { evaluatePreflight } from './preflight.js';
+import { renderHistory } from './history.js';
 
 /* Bumped together with the <meta name="inkcount-version"> in index.html on
  * every release. GitHub Pages caches assets for ~10 minutes, so right after a
@@ -47,6 +48,7 @@ export function initUI() {
     total: $('result-total'), sub: $('result-sub'),
     transcriptCard: $('transcript-card'), transcriptList: $('transcript-list'),
     overlayCard: $('overlay-card'), overlaySlot: $('overlay-slot'), overlayCaption: $('overlay-caption'),
+    saveEntryBtn: $('btn-save-entry'), historyCard: $('history-card'), historyList: $('history-list'), clearHistoryBtn: $('btn-clear-history'),
   };
 
   const state = { entry: null, selectedPage: -1, photo: null, running: false, loading: false, cvReady: false, memoryOnly: false };
@@ -230,6 +232,7 @@ export function initUI() {
       els.sub.textContent = pages.length + (pages.length === 1 ? ' page' : ' pages') + ' · ' + total +
         ' words' + (state.photo ? ' — new photo staged' : '');
     }
+    renderSaveButton();
   }
 
   function renderSelectedPage() {
@@ -479,9 +482,48 @@ export function initUI() {
   els.reset.addEventListener('click', clearPhoto);
   els.newEntryBtn.addEventListener('click', () => {
     if (state.running) return;
-    const unsaved = state.entry && state.entry.pages.length > 0; // Task 4 adds "&& !isEntrySaved(state.entry)"
+    const unsaved = state.entry && state.entry.pages.length > 0 && !isEntrySaved(state.entry);
     if (unsaved) inlineConfirm(els.newEntryBtn, startNewEntry);
     else startNewEntry();
+  });
+
+  function renderHistoryCard() {
+    const rows = loadHistory();
+    els.historyCard.hidden = rows.length === 0;
+    renderHistory(els.historyList, rows, {
+      onDelete: (row, btn) => inlineConfirm(btn, () => { deleteHistoryRow(row.id); renderHistoryCard(); renderSaveButton(); }),
+    });
+  }
+
+  function renderSaveButton() {
+    const pages = state.entry ? state.entry.pages.length : 0;
+    if (pages === 0) {
+      els.saveEntryBtn.disabled = true;
+      els.saveEntryBtn.textContent = 'Save entry';
+      return;
+    }
+    const saved = isEntrySaved(state.entry);
+    els.saveEntryBtn.disabled = saved;
+    els.saveEntryBtn.textContent = saved ? 'Saved ✓' : 'Save entry';
+  }
+
+  els.saveEntryBtn.addEventListener('click', () => {
+    if (!state.entry || state.entry.pages.length === 0) return;
+    if (!storageAvailable()) {
+      showError("Couldn't save — this browser is blocking local storage (private mode?). The count still works; it just can't be kept.");
+      return;
+    }
+    const row = saveToHistory(state.entry);
+    if (!row) {
+      showError("Couldn't save — this device's storage is full.");
+      return;
+    }
+    renderHistoryCard();
+    renderSaveButton();
+    setStatus('Entry saved to this device.');
+  });
+  els.clearHistoryBtn.addEventListener('click', () => {
+    inlineConfirm(els.clearHistoryBtn, () => { clearHistory(); renderHistoryCard(); renderSaveButton(); });
   });
 
   // Ask the browser not to evict our ~80 MB cached model under storage
@@ -506,6 +548,7 @@ export function initUI() {
     renderEntry();
     setStatus('Preparing the analyzer…');
   }
+  renderHistoryCard();
   updateRunEnabled();
   loadOpenCV().then(async () => {
     state.cvReady = true;

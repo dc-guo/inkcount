@@ -340,6 +340,16 @@ async function runUI() {
     })`));
     step('select-page-1', sel.current === 'true' && /^Page 1/.test(sel.caption) && sel.transcriptItems === 16, sel);
 
+    // Save the 2-page entry -> one history row, button flips to Saved.
+    await evalJS(page.cdp, `document.getElementById('btn-save-entry').click()`);
+    const saved1 = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      cardShown: !document.getElementById('history-card').hidden,
+      rows: document.querySelectorAll('#history-list li').length,
+      btnText: document.getElementById('btn-save-entry').textContent,
+      btnDisabled: document.getElementById('btn-save-entry').disabled,
+    })`));
+    step('save-entry', saved1.cardShown === true && saved1.rows === 1 && /Saved/.test(saved1.btnText) && saved1.btnDisabled === true, saved1);
+
     // Remove page 2 through the inline confirm.
     await evalJS(page.cdp, `document.querySelectorAll('#pages-strip .page-remove')[1].click()`);
     await pollEval(page.cdp, `!!document.querySelector('#pages-strip .confirm-yes')`, (v) => v === true, 10000, 'remove confirm shown');
@@ -350,6 +360,19 @@ async function runUI() {
     })`));
     step('remove-page', afterRemove.pageCards === 1 && afterRemove.total >= 170 && afterRemove.total <= 200, afterRemove);
 
+    // The entry changed, so Save re-arms; saving again UPDATES the same row.
+    const rearmed = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      btnText: document.getElementById('btn-save-entry').textContent,
+      btnDisabled: document.getElementById('btn-save-entry').disabled,
+    })`));
+    step('save-rearmed', /Save entry/.test(rearmed.btnText) && rearmed.btnDisabled === false, rearmed);
+    await evalJS(page.cdp, `document.getElementById('btn-save-entry').click()`);
+    const saved2 = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      rows: document.querySelectorAll('#history-list li').length,
+      counts: (document.querySelector('#history-list .history-counts') || {}).textContent,
+    })`));
+    step('save-upsert', saved2.rows === 1 && /1 page\b/.test(saved2.counts || ''), saved2);
+
     // Refresh: the in-progress entry survives (real navigation, not a mock).
     origin = await evalJS(page.cdp, 'performance.timeOrigin');
     await page.goto(`${BASE}/web/index.html?reload=1`);
@@ -357,18 +380,20 @@ async function runUI() {
     const restored = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       pageCards: document.querySelectorAll('#pages-strip .page-card').length,
       total: parseInt(document.getElementById('result-total').textContent, 10),
+      historyRows: document.querySelectorAll('#history-list li').length,
+      savedBtn: document.getElementById('btn-save-entry').textContent,
     })`));
-    step('entry-restored', restored.pageCards === 1 && restored.total >= 170 && restored.total <= 200, restored);
+    step('entry-restored', restored.pageCards === 1 && restored.total >= 170 && restored.total <= 200 &&
+      restored.historyRows === 1 && /Saved/.test(restored.savedBtn), restored);
 
-    // New entry clears the workspace (entry is unsaved -> inline confirm).
+    // New entry: the entry is saved, so it clears without a confirm.
     await evalJS(page.cdp, `document.getElementById('btn-new-entry').click()`);
-    await pollEval(page.cdp, `!!document.querySelector('.hero-actions .confirm-yes')`, (v) => v === true, 10000, 'new-entry confirm shown');
-    await evalJS(page.cdp, `document.querySelector('.hero-actions .confirm-yes').click()`);
     const cleared = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       pageCards: document.querySelectorAll('#pages-strip .page-card').length,
       total: document.getElementById('result-total').textContent,
+      historyRows: document.querySelectorAll('#history-list li').length,
     })`));
-    step('new-entry', cleared.pageCards === 0 && cleared.total === '—', cleared);
+    step('new-entry', cleared.pageCards === 0 && cleared.total === '—' && cleared.historyRows === 1, cleared);
 
     // Counting still works after the refresh + new-entry cycle.
     await loadSampleAndCount(1, 'post-refresh');
@@ -380,6 +405,16 @@ async function runUI() {
       label: document.getElementById('active-image-label').textContent,
     })`));
     step('clear-photo', /No image loaded/.test(reset.label), reset);
+
+    // Delete the saved row through its inline confirm -> card hides.
+    await evalJS(page.cdp, `document.querySelector('#history-list .history-delete').click()`);
+    await pollEval(page.cdp, `!!document.querySelector('#history-list .confirm-yes')`, (v) => v === true, 10000, 'delete confirm shown');
+    await evalJS(page.cdp, `document.querySelector('#history-list .confirm-yes').click()`);
+    const afterDelete = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      rows: document.querySelectorAll('#history-list li').length,
+      cardHidden: document.getElementById('history-card').hidden,
+    })`));
+    step('delete-history-row', afterDelete.rows === 0 && afterDelete.cardHidden === true, afterDelete);
 
     const audit = await page.collectAudit();
     out.consoleErrors = audit.errors;
