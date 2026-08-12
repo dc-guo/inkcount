@@ -29,7 +29,7 @@ const CDP_PORT = PORT + 1222;
 const PROFILE = path.join(os.tmpdir(), `inkcount-ci-profile-${process.pid}`);
 const REPORT = path.join(ROOT, 'tools', 'ci', 'report.json');
 
-const DEFAULT_GATES = 'smoke,assets,count,store,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
+const DEFAULT_GATES = 'smoke,assets,count,store,preflight,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
 const GATES = (process.env.GATES || DEFAULT_GATES).split(',').filter((g) => g && g !== 'none');
 
 function chromeBin() {
@@ -166,7 +166,7 @@ addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: '
   };
 }
 
-const GATE_BUDGET_MS = { recognize: 360000, accuracy: 1200000, pwa: 300000, a11y: 600000 };
+const GATE_BUDGET_MS = { recognize: 360000, accuracy: 1200000, pwa: 300000, a11y: 600000, preflight: 240000 };
 
 async function runGate(name) {
   const page = await newPage();

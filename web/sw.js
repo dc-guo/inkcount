@@ -32,6 +32,7 @@ const SHELL = [
   'src/geometric.js',
   'src/ui.js',
   'src/store.js',
+  'src/preflight.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'samples/sample_page.jpg',
