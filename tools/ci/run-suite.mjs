@@ -316,9 +316,9 @@ async function runUI() {
     // Poll the strip, not the status line — the staged photo's analyzer can
     // overwrite the "Page 2 done" status within a poll interval.
     await pollEval(page.cdp, `document.querySelectorAll('#pages-strip .page-card').length`, (n) => n === 2, 600000, 'page 2 counted');
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'staged photo run enabled');
     const midStage = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       label: document.getElementById('active-image-label').textContent,
-      runEnabledEventually: true,
     })`));
     step('stage-photo-mid-count', /sample_page\.jpg/.test(midStage.label), midStage);
 
@@ -357,8 +357,10 @@ async function runUI() {
     const afterRemove = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       pageCards: document.querySelectorAll('#pages-strip .page-card').length,
       total: parseInt(document.getElementById('result-total').textContent, 10),
+      currentFirst: (document.querySelectorAll('#pages-strip .page-select')[0] || { getAttribute: () => null }).getAttribute('aria-current'),
     })`));
-    step('remove-page', afterRemove.pageCards === 1 && afterRemove.total >= 170 && afterRemove.total <= 200, afterRemove);
+    step('remove-page', afterRemove.pageCards === 1 && afterRemove.total >= 170 && afterRemove.total <= 200 &&
+      afterRemove.currentFirst === 'true', afterRemove);
 
     // The entry changed, so Save re-arms; saving again UPDATES the same row.
     const rearmed = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
@@ -399,6 +401,16 @@ async function runUI() {
     await loadSampleAndCount(1, 'post-refresh');
     const totalAfter = await evalJS(page.cdp, `document.getElementById('result-total').textContent`);
     step('refresh-then-run', parseInt(totalAfter, 10) >= 170 && parseInt(totalAfter, 10) <= 200, totalAfter);
+
+    // The unsaved-entry guard: New entry must ask before discarding work.
+    await evalJS(page.cdp, `document.getElementById('btn-new-entry').click()`);
+    await pollEval(page.cdp, `!!document.querySelector('.hero-actions .confirm-pair')`, (v) => v === true, 10000, 'unsaved new-entry confirm shown');
+    await evalJS(page.cdp, `document.querySelector('.hero-actions .confirm-no').click()`);
+    const kept = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      pairGone: document.querySelector('.hero-actions .confirm-pair') === null,
+    })`));
+    step('unsaved-new-entry-confirms', kept.pageCards === 1 && kept.pairGone === true, kept);
 
     await evalJS(page.cdp, `document.getElementById('btn-reset').click()`);
     const reset = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
