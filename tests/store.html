@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>store module</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>store.js</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import * as store from '../web/src/store.js';
+
+const log = document.getElementById('log');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+let failed = null;
+const assertEq = (got, want, name) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  say(`${ok ? 'ok  ' : 'FAIL'} ${name}: got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
+  if (!ok && !failed) failed = name;
+};
+const assertTrue = (got, name) => assertEq(!!got, true, name);
+
+const ENTRY_KEY = 'inkcount-entry-v1';
+const HISTORY_KEY = 'inkcount-history-v1';
+const origSetItem = Storage.prototype.setItem;
+let quotaLimit = Infinity;
+Storage.prototype.setItem = function (k, v) {
+  if (String(v).length > quotaLimit) {
+    throw new DOMException('quota exceeded', 'QuotaExceededError');
+  }
+  return origSetItem.call(this, k, v);
+};
+
+const fakePage = (count, overlaySize) => ({
+  name: 'p.jpg', count, lines: 3, secs: 1.2,
+  transcript: ['a line', 'another line', 'third'], perLine: [2, 2, 1],
+  lowConfidence: [false, false, false],
+  thumb: 'data:image/jpeg;base64,QQ==',
+  overlay: overlaySize ? 'x'.repeat(overlaySize) : 'data:image/jpeg;base64,QQ==',
+});
+
+try {
+  localStorage.removeItem(ENTRY_KEY); localStorage.removeItem(HISTORY_KEY);
+
+  // --- entry round-trip -------------------------------------------------
+  assertEq(store.loadEntry(), null, 'loadEntry empty -> null');
+  const e1 = store.newEntry();
+  assertTrue(e1.id && e1.startedAt && Array.isArray(e1.pages), 'newEntry shape');
+  e1.pages.push(fakePage(62), fakePage(71));
+  assertEq(store.saveEntry(e1), 'full', 'saveEntry full');
+  assertEq(store.loadEntry(), JSON.parse(JSON.stringify(e1)), 'entry round-trip');
+  assertEq(store.entryTotal(e1), 133, 'entryTotal');
+  store.clearEntry();
+  assertEq(store.loadEntry(), null, 'clearEntry');
+
+  // --- corrupt data never crashes --------------------------------------
+  origSetItem.call(localStorage, ENTRY_KEY, 'not json{');
+  assertEq(store.loadEntry(), null, 'corrupt JSON -> null');
+  origSetItem.call(localStorage, ENTRY_KEY, JSON.stringify({ id: 5 }));
+  assertEq(store.loadEntry(), null, 'wrong shape -> null');
+  origSetItem.call(localStorage, HISTORY_KEY, JSON.stringify({ nope: 1 }));
+  assertEq(store.loadHistory(), [], 'corrupt history -> []');
+  localStorage.removeItem(ENTRY_KEY); localStorage.removeItem(HISTORY_KEY);
+
+  // --- history: save, upsert, order, delete, clear ----------------------
+  const row1 = store.saveToHistory(e1);
+  assertEq([row1.total, row1.pageCount, row1.perPageCounts], [133, 2, [62, 71]], 'row fields');
+  assertEq(row1.thumb, e1.pages[0].thumb, 'row thumb = first page');
+  assertEq(store.loadHistory().length, 1, 'one row');
+  e1.pages[1].count = 80;
+  store.saveToHistory(e1);
+  assertEq(store.loadHistory().length, 1, 'upsert same id -> still one row');
+  assertEq(store.loadHistory()[0].total, 142, 'upsert updated total');
+  const e2 = store.newEntry();
+  e2.pages.push(fakePage(10));
+  store.saveToHistory(e2);
+  assertEq(store.loadHistory().length, 2, 'second entry -> two rows');
+  assertEq(store.loadHistory()[0].id, e2.id, 'newest first');
+  assertEq(store.isEntrySaved(e2), true, 'isEntrySaved after save');
+  e2.pages[0].count = 11;
+  assertEq(store.isEntrySaved(e2), false, 'isEntrySaved false after change');
+  assertEq(store.isEntrySaved(store.newEntry()), false, 'empty entry never saved');
+  store.deleteHistoryRow(e2.id);
+  assertEq(store.loadHistory().length, 1, 'deleteHistoryRow');
+  store.clearHistory();
+  assertEq(store.loadHistory(), [], 'clearHistory');
+
+  // --- cap at 50, oldest evicted ----------------------------------------
+  for (let i = 0; i < 55; i++) {
+    const e = store.newEntry(); e.pages.push(fakePage(i)); store.saveToHistory(e);
+  }
+  assertEq(store.loadHistory().length, 50, 'cap 50');
+  assertEq(store.loadHistory()[49].perPageCounts, [5], 'oldest five evicted');
+  store.clearHistory();
+
+  // --- quota ladder: entry ----------------------------------------------
+  const big = store.newEntry();
+  big.pages.push(fakePage(30, 300000));
+  quotaLimit = 200000;
+  assertEq(store.saveEntry(big), 'stripped', 'quota -> stripped');
+  assertEq(store.loadEntry().pages[0].overlay, null, 'stripped overlay is null');
+  quotaLimit = 10;
+  assertEq(store.saveEntry(big), 'memory', 'hard quota -> memory');
+  quotaLimit = Infinity;
+  store.clearEntry();
+
+  // --- quota ladder: history evicts to fit ------------------------------
+  for (let i = 0; i < 3; i++) {
+    const e = store.newEntry(); e.pages.push(fakePage(i));
+    e.pages[0].thumb = 'T'.repeat(4000); // history rows carry the thumb — make each row big
+    store.saveToHistory(e);
+  }
+  const oneRowSize = JSON.stringify(store.loadHistory().slice(0, 1)).length;
+  quotaLimit = oneRowSize + 200; // room for ~1 row only
+  const eq = store.newEntry(); eq.pages.push(fakePage(99));
+  eq.pages[0].thumb = 'T'.repeat(4000);
+  const rowq = store.saveToHistory(eq);
+  assertTrue(rowq && rowq.id === eq.id, 'quota save still returns row');
+  assertEq(store.loadHistory().length, 1, 'history evicted to fit');
+  assertEq(store.loadHistory()[0].id, eq.id, 'surviving row is the newest');
+  quotaLimit = Infinity;
+
+  // --- makeThumb ---------------------------------------------------------
+  const c = document.createElement('canvas'); c.width = 400; c.height = 300;
+  c.getContext('2d').fillRect(0, 0, 400, 300);
+  const thumb = store.makeThumb(c, 160, 0.7);
+  assertTrue(thumb.startsWith('data:image/jpeg') && thumb.length > 100, 'makeThumb jpeg dataURL');
+  assertEq(store.storageAvailable(), true, 'storageAvailable');
+} catch (e) {
+  failed = failed || 'exception';
+  say('EXCEPTION: ' + (e.stack || e.message));
+} finally {
+  Storage.prototype.setItem = origSetItem;
+  localStorage.removeItem(ENTRY_KEY);
+  localStorage.removeItem(HISTORY_KEY);
+}
+
+const verdict = document.getElementById('verdict');
+verdict.textContent = failed ? 'STORE FAIL — ' + failed : 'STORE PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'STORE FAIL' : 'STORE PASS';
+</script>
+</body>
+</html>

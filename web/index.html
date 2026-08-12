@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="inkcount-version" content="6">
+<meta name="inkcount-version" content="7">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="./manifest.webmanifest">
 <title>InkCount — count handwritten words (Beta)</title>
@@ -26,16 +26,24 @@
 
     <!-- Input card -->
     <article class="card card-input" id="drop-zone">
-      <h2>Add a page</h2>
+      <h2 id="input-title">Add a page</h2>
       <p class="muted">Photograph your handwritten page — InkCount counts the words right on your device.
         JPG, PNG, WebP or HEIC (iPhone photos work).</p>
-      <label class="pill-button pill-primary" for="file-input">
+      <label class="pill-button pill-primary" for="camera-input" id="camera-label">
+        <span><span aria-hidden="true">📷 </span>Take photo</span>
+        <input type="file" id="camera-input" accept="image/*" capture="environment"
+               aria-label="Take a photo of a handwritten page with your camera">
+      </label>
+      <label class="pill-button pill-primary" for="file-input" id="choose-label">
         <span><span aria-hidden="true">＋ </span>Choose photo</span>
         <input type="file" id="file-input" accept="image/*,.heic,.heif" aria-label="Choose a photo of a handwritten page">
       </label>
       <button type="button" id="btn-sample" class="pill-button pill-ghost">Try a sample page</button>
+      <p class="muted small framing-tip">Fill the frame with the page — straight on, in good light.</p>
       <p class="muted small" id="active-image-label">No image loaded.</p>
+      <ul id="preflight-warnings" class="preflight" aria-live="polite"></ul>
       <div id="image-slot" class="image-slot"></div>
+      <ul id="pages-strip" class="pages-strip" aria-label="Pages in this entry"></ul>
     </article>
 
     <!-- Hero count card -->
@@ -47,7 +55,9 @@
       <p class="hero-sub" id="result-sub">Choose a page and press Count.</p>
       <div class="hero-actions">
         <button type="button" id="btn-run" class="pill-button pill-dark" disabled><span aria-hidden="true">▶ </span>Count words</button>
-        <button type="button" id="btn-reset" class="pill-button pill-ghost">Reset</button>
+        <button type="button" id="btn-reset" class="pill-button pill-ghost">Clear photo</button>
+        <button type="button" id="btn-save-entry" class="pill-button pill-primary" disabled>Save entry</button>
+        <button type="button" id="btn-new-entry" class="pill-button pill-ghost">New entry</button>
       </div>
       <p class="status" id="status-text" role="status">Starting…</p>
       <progress id="progress" aria-label="Reading progress" hidden></progress>
@@ -67,6 +77,15 @@
       <h2>Detected lines</h2>
       <p class="muted small" id="overlay-caption">The straightened page with each counted line boxed.</p>
       <div id="overlay-slot" class="image-slot image-slot-compact"></div>
+    </article>
+
+    <!-- Past entries card -->
+    <article class="card card-history" id="history-card" hidden>
+      <h2>Past entries</h2>
+      <p class="muted small">Past entries stay only in this browser on this device — never uploaded.
+        Photos aren't kept; just the counts and a small preview.</p>
+      <ul id="history-list" class="history-list"></ul>
+      <button type="button" id="btn-clear-history" class="pill-button pill-ghost">Clear all</button>
     </article>
 
   </section>

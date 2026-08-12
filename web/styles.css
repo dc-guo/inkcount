@@ -167,6 +167,16 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* ---------- camera-first (coarse pointers = touch devices) ---------- */
+#camera-label { display: none; }
+.framing-tip { display: none; }
+@media (pointer: coarse) {
+  #camera-label { display: inline-flex; }
+  #choose-label { background: var(--lilac); color: var(--violet); }
+  #choose-label span > span[aria-hidden] { display: none; }
+  .framing-tip { display: block; margin: -0.2rem 0 0.6rem; }
+}
+
 .image-slot { margin-top: 0.4rem; }
 .image-slot canvas, .image-slot img {
   display: block;
@@ -178,13 +188,41 @@ a:focus-visible {
 
 /* Overlay preview stays compact — tall pages scale down instead of dominating
  * the grid. Click opens the full-size drawing in a new tab. */
-.image-slot-compact canvas {
+.image-slot-compact canvas, .image-slot-compact img {
   max-height: min(560px, 70vh);
   width: auto;
   max-width: 100%;
   margin: 0 auto;
   cursor: zoom-in;
 }
+
+/* ---------- pages strip ---------- */
+.pages-strip { list-style: none; display: flex; gap: 0.6rem; margin: 0.9rem 0 0; padding: 0.45rem 0 0.2rem; overflow-x: auto; }
+.page-card { position: relative; flex: 0 0 auto; }
+.page-select {
+  display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  font: inherit; font-size: 0.78rem; font-weight: 700; color: var(--violet);
+  background: var(--lilac); border: 0; border-radius: 16px;
+  padding: 0.55rem 0.7rem 0.5rem; cursor: pointer;
+}
+.page-select img { width: 72px; height: auto; border-radius: 10px; display: block; }
+.page-select[aria-current="true"] { outline: 3px solid var(--violet-bright); outline-offset: 2px; }
+.page-remove {
+  position: absolute; top: -0.4rem; right: -0.4rem; width: 1.6rem; height: 1.6rem;
+  border-radius: 50%; border: 0; background: var(--ink); color: #fff;
+  font-size: 0.8rem; line-height: 1; cursor: pointer;
+}
+.page-select:focus-visible, .page-remove:focus-visible { outline: 3px solid var(--violet-bright); outline-offset: 2px; }
+
+/* ---------- pre-flight warnings ---------- */
+.preflight { list-style: none; margin: 0 0 0.5rem; padding: 0; }
+.preflight li { background: var(--peach); color: #7d4a1f; border-radius: 14px; padding: 0.5rem 0.9rem; font-size: 0.86rem; font-weight: 600; margin: 0.35rem 0; }
+.preflight li.preflight-info { background: var(--lilac); color: var(--violet); }
+
+/* ---------- inline confirm (no native dialogs — headless auto-dismisses) ---------- */
+.confirm-pair { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0 0.5rem 0.6rem 0; }
+.confirm-label { font-size: 0.85rem; font-weight: 700; color: var(--bad); }
+.confirm-pair .pill-button { margin: 0; padding: 0.45rem 0.9rem; font-size: 0.85rem; }
 
 /* ---------- hero card ---------- */
 
@@ -240,6 +278,16 @@ progress::-webkit-progress-value { background: var(--violet-bright); border-radi
 .transcript li { margin: 0 0 0.45rem; break-inside: avoid; color: var(--ink); }
 .transcript .t-count { color: var(--ink-soft); font-size: 0.8rem; margin-left: 0.4rem; white-space: nowrap; }
 .transcript .t-empty { color: var(--ink-soft); font-style: italic; }
+
+/* ---------- history card ---------- */
+.card-history { grid-column: 1 / -1; }
+.history-list { list-style: none; margin: 0 0 0.8rem; padding: 0; }
+.history-row { display: flex; align-items: center; gap: 0.9rem; padding: 0.55rem 0; border-bottom: 1px solid var(--lilac); }
+.history-thumb { width: 56px; height: auto; border-radius: 10px; }
+.history-main { flex: 1; }
+.history-date { font-weight: 700; font-size: 0.9rem; }
+.history-counts { color: var(--ink-soft); font-size: 0.86rem; }
+.history-row .pill-button { margin: 0; padding: 0.4rem 0.9rem; font-size: 0.82rem; }
 
 /* ---------- footer ---------- */
 

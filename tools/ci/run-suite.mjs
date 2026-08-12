@@ -29,7 +29,7 @@ const CDP_PORT = PORT + 1222;
 const PROFILE = path.join(os.tmpdir(), `inkcount-ci-profile-${process.pid}`);
 const REPORT = path.join(ROOT, 'tools', 'ci', 'report.json');
 
-const DEFAULT_GATES = 'smoke,assets,count,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
+const DEFAULT_GATES = 'smoke,assets,count,store,preflight,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
 const GATES = (process.env.GATES || DEFAULT_GATES).split(',').filter((g) => g && g !== 'none');
 
 function chromeBin() {
@@ -166,7 +166,7 @@ addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: '
   };
 }
 
-const GATE_BUDGET_MS = { recognize: 360000, accuracy: 1200000, pwa: 300000, a11y: 600000 };
+const GATE_BUDGET_MS = { recognize: 360000, accuracy: 1200000, pwa: 300000, a11y: 600000, preflight: 240000 };
 
 async function runGate(name) {
   const page = await newPage();
@@ -252,57 +252,190 @@ async function runUI() {
     log(`[ui] ${label}: ${ok ? 'ok' : 'FAILED ' + JSON.stringify(detail)}`);
     if (!ok) throw new Error('UI step failed: ' + label);
   };
+  const freshReady = async (originBefore, label) => pollEval(page.cdp,
+    `String(performance.timeOrigin) + '|' + (document.title.endsWith(' — Ready') ? '1' : '0')`,
+    (v) => { const p = String(v).split('|'); return Number(p[0]) !== originBefore && p[1] === '1'; },
+    300000, label);
+  // Load the sample and count it. expectPage pins the status regex to the page
+  // number so a stale "Page N done" from the PREVIOUS count can't false-pass.
+  const loadSampleAndCount = async (expectPage, label) => {
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, label + ' run enabled');
+    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
+    await pollEval(page.cdp, `document.getElementById('status-text').textContent`,
+      (s) => new RegExp('^Page ' + expectPage + ' done').test(s || ''), 600000, label + ' done');
+  };
   try {
+    // Clean boot: gates share this origin's localStorage, so wipe and reload
+    // before asserting anything (cross-gate storage bleed is a known hazard).
     await page.goto(`${BASE}/web/index.html`);
-    const readyTitle = await pollTitle(page.id, (t) => / — Ready$/.test(t || ''), 300000, 'cv ready');
-    step('opencv-ready', true, readyTitle);
+    await pollTitle(page.id, (t) => / — Ready$/.test(t || ''), 300000, 'cv ready');
+    await evalJS(page.cdp, `localStorage.clear()`);
+    let origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?clean=1`);
+    await freshReady(origin, 'clean boot ready');
+    step('opencv-ready', true, null);
 
+    // Sample loads -> stage-1 analysis at load time: overlay already visible,
+    // zero pre-flight warnings on the known-good sample.
     await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
     await pollEval(page.cdp, `document.getElementById('active-image-label').textContent`, (s) => /sample_page\.jpg/.test(s || ''), 60000, 'sample label');
-    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 60000, 'run enabled');
-    step('sample-loaded', true, null);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'run enabled');
+    const stagedState = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      overlayShown: !document.getElementById('overlay-card').hidden,
+      overlayCanvases: document.querySelectorAll('#overlay-slot canvas').length,
+      warnings: document.querySelectorAll('#preflight-warnings li').length,
+    })`));
+    step('analyze-on-load', stagedState.overlayShown === true && stagedState.overlayCanvases === 1 && stagedState.warnings === 0, stagedState);
 
     await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
-    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Done/.test(s || ''), 600000, 'run done');
+    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Page 1 done/.test(s || ''), 600000, 'page 1 done');
     const final = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       total: document.getElementById('result-total').textContent,
       estimateChipGone: document.getElementById('estimate-chip') === null,
       transcriptItems: document.querySelectorAll('#transcript-list li').length,
-      overlayCanvases: document.querySelectorAll('#overlay-slot canvas').length,
+      overlayEls: document.querySelectorAll('#overlay-slot canvas, #overlay-slot img').length,
       errorHidden: document.getElementById('error-banner').hidden,
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
     })`));
     out.final = final;
-    const total = parseInt(final.total, 10);
-    step('count-plausible', total >= 170 && total <= 200, final);
+    const total1 = parseInt(final.total, 10);
+    step('count-plausible', total1 >= 170 && total1 <= 200, final);
     step('estimate-chip-removed', final.estimateChipGone === true, final);
     step('transcript-rendered', final.transcriptItems === 16, final);
-    step('overlay-rendered', final.overlayCanvases === 1, final);
+    step('overlay-rendered', final.overlayEls === 1, final);
     step('no-error-banner', final.errorHidden === true, final);
+    step('page-card-added', final.pageCards === 1, final);
+
+    // Second page — and while it is being read, stage the NEXT photo. The
+    // count must complete on the captured photo and leave the new one staged.
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'page 2 run enabled');
+    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    // Poll the strip, not the status line — the staged photo's analyzer can
+    // overwrite the "Page 2 done" status within a poll interval.
+    await pollEval(page.cdp, `document.querySelectorAll('#pages-strip .page-card').length`, (n) => n === 2, 600000, 'page 2 counted');
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'staged photo run enabled');
+    const midStage = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      label: document.getElementById('active-image-label').textContent,
+    })`));
+    step('stage-photo-mid-count', /sample_page\.jpg/.test(midStage.label), midStage);
+
+    const multi = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      perPage: Array.from(document.querySelectorAll('#pages-strip .page-select')).map(
+        (b) => parseInt((b.textContent.match(/(\\d+) words?/) || [])[1], 10)),
+    })`));
+    step('two-pages', multi.pageCards === 2 && multi.total >= 340 && multi.total <= 400 &&
+      multi.perPage.length === 2 && multi.perPage.every((n) => n >= 170 && n <= 200), multi);
+
+    // Selecting page 1 shows page 1's details.
+    await evalJS(page.cdp, `document.querySelectorAll('#pages-strip .page-select')[0].click()`);
+    const sel = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      current: document.querySelectorAll('#pages-strip .page-select')[0].getAttribute('aria-current'),
+      caption: document.getElementById('overlay-caption').textContent,
+      transcriptItems: document.querySelectorAll('#transcript-list li').length,
+    })`));
+    step('select-page-1', sel.current === 'true' && /^Page 1/.test(sel.caption) && sel.transcriptItems === 16, sel);
+
+    // Save the 2-page entry -> one history row, button flips to Saved.
+    await evalJS(page.cdp, `document.getElementById('btn-save-entry').click()`);
+    const saved1 = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      cardShown: !document.getElementById('history-card').hidden,
+      rows: document.querySelectorAll('#history-list li').length,
+      btnText: document.getElementById('btn-save-entry').textContent,
+      btnDisabled: document.getElementById('btn-save-entry').disabled,
+    })`));
+    step('save-entry', saved1.cardShown === true && saved1.rows === 1 && /Saved/.test(saved1.btnText) && saved1.btnDisabled === true, saved1);
+
+    // Remove page 2 through the inline confirm.
+    await evalJS(page.cdp, `document.querySelectorAll('#pages-strip .page-remove')[1].click()`);
+    await pollEval(page.cdp, `!!document.querySelector('#pages-strip .confirm-yes')`, (v) => v === true, 10000, 'remove confirm shown');
+    await evalJS(page.cdp, `document.querySelector('#pages-strip .confirm-yes').click()`);
+    const afterRemove = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+      currentFirst: (document.querySelectorAll('#pages-strip .page-select')[0] || { getAttribute: () => null }).getAttribute('aria-current'),
+    })`));
+    step('remove-page', afterRemove.pageCards === 1 && afterRemove.total >= 170 && afterRemove.total <= 200 &&
+      afterRemove.currentFirst === 'true', afterRemove);
+
+    // The entry changed, so Save re-arms; saving again UPDATES the same row.
+    const rearmed = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      btnText: document.getElementById('btn-save-entry').textContent,
+      btnDisabled: document.getElementById('btn-save-entry').disabled,
+    })`));
+    step('save-rearmed', /Save entry/.test(rearmed.btnText) && rearmed.btnDisabled === false, rearmed);
+    await evalJS(page.cdp, `document.getElementById('btn-save-entry').click()`);
+    const saved2 = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      rows: document.querySelectorAll('#history-list li').length,
+      counts: (document.querySelector('#history-list .history-counts') || {}).textContent,
+    })`));
+    step('save-upsert', saved2.rows === 1 && /1 page\b/.test(saved2.counts || ''), saved2);
+
+    // Refresh: the in-progress entry survives (real navigation, not a mock).
+    origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?reload=1`);
+    await freshReady(origin, 'ready after refresh');
+    const restored = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+      historyRows: document.querySelectorAll('#history-list li').length,
+      savedBtn: document.getElementById('btn-save-entry').textContent,
+    })`));
+    step('entry-restored', restored.pageCards === 1 && restored.total >= 170 && restored.total <= 200 &&
+      restored.historyRows === 1 && /Saved/.test(restored.savedBtn), restored);
+
+    // New entry: the entry is saved, so it clears without a confirm.
+    await evalJS(page.cdp, `document.getElementById('btn-new-entry').click()`);
+    const cleared = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: document.getElementById('result-total').textContent,
+      historyRows: document.querySelectorAll('#history-list li').length,
+    })`));
+    step('new-entry', cleared.pageCards === 0 && cleared.total === '—' && cleared.historyRows === 1, cleared);
+
+    // Counting still works after the refresh + new-entry cycle.
+    await loadSampleAndCount(1, 'post-refresh');
+    const totalAfter = await evalJS(page.cdp, `document.getElementById('result-total').textContent`);
+    step('refresh-then-run', parseInt(totalAfter, 10) >= 170 && parseInt(totalAfter, 10) <= 200, totalAfter);
+
+    // The unsaved-entry guard: New entry must ask before discarding work.
+    await evalJS(page.cdp, `document.getElementById('btn-new-entry').click()`);
+    await pollEval(page.cdp, `!!document.querySelector('.hero-actions .confirm-pair')`, (v) => v === true, 10000, 'unsaved new-entry confirm shown');
+    await evalJS(page.cdp, `document.querySelector('.hero-actions .confirm-no').click()`);
+    const kept = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      pairGone: document.querySelector('.hero-actions .confirm-pair') === null,
+    })`));
+    step('unsaved-new-entry-confirms', kept.pageCards === 1 && kept.pairGone === true, kept);
 
     await evalJS(page.cdp, `document.getElementById('btn-reset').click()`);
     const reset = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       label: document.getElementById('active-image-label').textContent,
-      hidden: document.getElementById('results-section') ? document.getElementById('results-section').hidden : true,
     })`));
-    step('reset', /No image loaded/.test(reset.label), reset);
+    step('clear-photo', /No image loaded/.test(reset.label), reset);
 
-    // The old title ends in " — Ready", and /json/list keeps reporting it for
-    // a beat after Page.navigate — a bare title poll passes instantly and the
-    // sample click lands on a page whose listeners aren't attached yet (the
-    // thrice-observed "refresh flake"). Require the NEW load (timeOrigin
-    // changed) AND its Ready title.
-    const originBefore = await evalJS(page.cdp, 'performance.timeOrigin');
-    await page.goto(`${BASE}/web/index.html?reload=1`);
-    await pollEval(page.cdp,
-      `String(performance.timeOrigin) + '|' + (document.title.endsWith(' — Ready') ? '1' : '0')`,
-      (v) => { const parts = String(v).split('|'); return Number(parts[0]) !== originBefore && parts[1] === '1'; },
-      300000, 'ready after refresh');
-    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
-    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'run enabled 2');
-    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
-    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Done/.test(s || ''), 600000, 'run after refresh');
-    const totalAfter = await evalJS(page.cdp, `document.getElementById('result-total').textContent`);
-    step('refresh-then-run', parseInt(totalAfter, 10) >= 170 && parseInt(totalAfter, 10) <= 200, totalAfter);
+    // Delete the saved row through its inline confirm -> card hides.
+    await evalJS(page.cdp, `document.querySelector('#history-list .history-delete').click()`);
+    await pollEval(page.cdp, `!!document.querySelector('#history-list .confirm-yes')`, (v) => v === true, 10000, 'delete confirm shown');
+    await evalJS(page.cdp, `document.querySelector('#history-list .confirm-yes').click()`);
+    const afterDelete = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      rows: document.querySelectorAll('#history-list li').length,
+      cardHidden: document.getElementById('history-card').hidden,
+    })`));
+    step('delete-history-row', afterDelete.rows === 0 && afterDelete.cardHidden === true, afterDelete);
+
+    const camera = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      exists: !!document.getElementById('camera-input'),
+      capture: document.getElementById('camera-input') ? document.getElementById('camera-input').getAttribute('capture') : null,
+      labelHiddenOnDesktop: getComputedStyle(document.getElementById('camera-label')).display === 'none',
+      tipHiddenOnDesktop: getComputedStyle(document.querySelector('.framing-tip')).display === 'none',
+    })`));
+    step('camera-first-markup', camera.exists && camera.capture === 'environment' &&
+      camera.labelHiddenOnDesktop === true && camera.tipHiddenOnDesktop === true, camera);
 
     const audit = await page.collectAudit();
     out.consoleErrors = audit.errors;

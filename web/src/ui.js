@@ -7,13 +7,16 @@ import { segmentLines } from './segment.js';
 import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
+import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb, loadHistory, saveToHistory, deleteHistoryRow, clearHistory, isEntrySaved, storageAvailable } from './store.js';
+import { evaluatePreflight } from './preflight.js';
+import { renderHistory } from './history.js';
 
 /* Bumped together with the <meta name="inkcount-version"> in index.html on
  * every release. GitHub Pages caches assets for ~10 minutes, so right after a
  * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
  * crashed with "Cannot set properties of null" when this code addressed an
  * element the other version didn't have. Detect the mismatch and self-heal. */
-const APP_VERSION = '6';
+const APP_VERSION = '7';
 
 export function initUI() {
   const $ = (id) => document.getElementById(id);
@@ -37,16 +40,19 @@ export function initUI() {
     return;
   }
   const els = {
-    fileInput: $('file-input'), dropZone: $('drop-zone'), sample: $('btn-sample'),
-    run: $('btn-run'), reset: $('btn-reset'),
+    fileInput: $('file-input'), cameraInput: $('camera-input'), dropZone: $('drop-zone'), sample: $('btn-sample'),
+    run: $('btn-run'), reset: $('btn-reset'), newEntryBtn: $('btn-new-entry'),
     status: $('status-text'), progress: $('progress'), error: $('error-banner'),
-    label: $('active-image-label'), imageSlot: $('image-slot'),
+    label: $('active-image-label'), imageSlot: $('image-slot'), inputTitle: $('input-title'),
+    warnings: $('preflight-warnings'), pagesStrip: $('pages-strip'),
     total: $('result-total'), sub: $('result-sub'),
     transcriptCard: $('transcript-card'), transcriptList: $('transcript-list'),
     overlayCard: $('overlay-card'), overlaySlot: $('overlay-slot'), overlayCaption: $('overlay-caption'),
+    saveEntryBtn: $('btn-save-entry'), historyCard: $('history-card'), historyList: $('history-list'), clearHistoryBtn: $('btn-clear-history'),
   };
 
-  const state = { canvas: null, name: null, running: false, loading: false, cvReady: false };
+  const state = { entry: null, selectedPage: -1, photo: null, running: false, loading: false, cvReady: false, memoryOnly: false };
+  // photo: { canvas, name, crops, overlayCanvas, skewAngle, textHeight, lines, rejectedCount } | null
 
   const setStatus = (t) => { els.status.textContent = t; };
   const showError = (m) => { els.error.textContent = m; els.error.hidden = false; };
@@ -64,50 +70,54 @@ export function initUI() {
     return context + '. Details: ' + raw;
   }
 
+  const DEBUG = new URLSearchParams(location.search).has('debug');
+
   function updateRunEnabled() {
-    els.run.disabled = !(state.cvReady && state.canvas && !state.running && !state.loading);
+    els.run.disabled = !(state.cvReady && state.photo && state.photo.crops &&
+      state.photo.lines > 0 && !state.running && !state.loading);
   }
 
-  function clearResults() {
-    els.total.textContent = '—';
-    els.sub.textContent = 'Choose a page and press Count.';
-    els.transcriptCard.hidden = true;
-    els.overlayCard.hidden = true;
-    els.transcriptList.replaceChildren();
-    els.overlaySlot.replaceChildren();
-    els.progress.hidden = true;
+  function inlineConfirm(trigger, onYes) {
+    const next = trigger.nextElementSibling;
+    if (next && next.classList.contains('confirm-pair')) return;
+    const pair = document.createElement('span');
+    pair.className = 'confirm-pair';
+    const label = document.createElement('span');
+    label.className = 'confirm-label';
+    label.textContent = 'Really?';
+    const yes = document.createElement('button');
+    yes.type = 'button'; yes.className = 'pill-button pill-dark confirm-yes'; yes.textContent = 'Yes';
+    const no = document.createElement('button');
+    no.type = 'button'; no.className = 'pill-button pill-ghost confirm-no'; no.textContent = 'No';
+    const cancel = () => { pair.remove(); trigger.hidden = false; trigger.focus(); };
+    yes.addEventListener('click', () => {
+      pair.remove(); trigger.hidden = false; onYes();
+      if (!document.contains(trigger) || trigger.disabled || trigger.hidden || !trigger.offsetParent) {
+        const s = document.getElementById('status-text');
+        if (s) { s.tabIndex = -1; s.focus(); }
+      }
+    });
+    no.addEventListener('click', cancel);
+    pair.addEventListener('keydown', (e) => { if (e.key === 'Escape') cancel(); });
+    pair.append(label, yes, no);
+    trigger.hidden = true;
+    trigger.after(pair);
+    yes.focus();
+  }
+
+  function persistEntry() {
+    if (!state.entry || state.entry.pages.length === 0) { clearEntry(); return; }
+    const mode = saveEntry(state.entry);
+    if (mode === 'memory' && !state.memoryOnly) {
+      state.memoryOnly = true;
+      showError("This device's storage is full — this entry can't be kept across refreshes. Counting still works normally.");
+    }
   }
 
   function showCount(n, sub) {
     els.total.textContent = String(n);
     els.sub.textContent = sub;
   }
-
-  async function loadInto(source, name, loadingMessage) {
-    state.loading = true;
-    updateRunEnabled();
-    setStatus(loadingMessage);
-    hideError();
-    try {
-      const canvas = await decodeToCanvas(source);
-      state.canvas = canvas;
-      state.name = name;
-      clearResults();
-      canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', 'Photo of your page: ' + name);
-      els.imageSlot.replaceChildren(canvas);
-      els.label.textContent = name + ' · ' + canvas.width + ' × ' + canvas.height + ' px';
-      state.loading = false;
-      setStatus(state.cvReady ? 'Ready — press Count words.' : 'Image loaded. Preparing the analyzer…');
-    } catch (e) {
-      state.loading = false;
-      setStatus('Ready.');
-      showError(humanError('That image could not be opened', e));
-    }
-    updateRunEnabled();
-  }
-
-  const DEBUG = new URLSearchParams(location.search).has('debug');
 
   function drawOverlay(grayMat, lineRects, wordBoxes, rejectedBands) {
     const cv = requireCV();
@@ -174,55 +184,183 @@ export function initUI() {
     els.transcriptCard.hidden = false;
   }
 
-  async function run() {
-    if (state.running || !state.canvas) return;
+  function renderWarnings(warns) {
+    els.warnings.replaceChildren();
+    for (const w of warns) {
+      const li = document.createElement('li');
+      if (w.severity === 'info') li.className = 'preflight-info';
+      li.textContent = w.message;
+      els.warnings.appendChild(li);
+    }
+  }
+
+  const pageLabel = (i, p) => 'Page ' + (i + 1) + ' · ' + p.count + (p.count === 1 ? ' word' : ' words');
+
+  function renderEntry() {
+    const pages = state.entry ? state.entry.pages : [];
+    els.pagesStrip.replaceChildren();
+    pages.forEach((p, i) => {
+      const li = document.createElement('li');
+      li.className = 'page-card';
+      const sel = document.createElement('button');
+      sel.type = 'button'; sel.className = 'page-select';
+      sel.setAttribute('aria-label', pageLabel(i, p) + ' — show details');
+      if (i === state.selectedPage) sel.setAttribute('aria-current', 'true');
+      const img = document.createElement('img');
+      img.src = p.thumb; img.alt = '';
+      const cap = document.createElement('span');
+      cap.textContent = pageLabel(i, p);
+      sel.append(img, cap);
+      sel.addEventListener('click', () => { state.selectedPage = i; renderEntry(); renderSelectedPage(); });
+      const rm = document.createElement('button');
+      rm.type = 'button'; rm.className = 'page-remove';
+      rm.textContent = '✕';
+      rm.setAttribute('aria-label', 'Remove page ' + (i + 1) + ', ' + p.count + ' words');
+      rm.addEventListener('click', () => inlineConfirm(rm, () => removePage(i)));
+      li.append(sel, rm);
+      els.pagesStrip.appendChild(li);
+    });
+    els.inputTitle.textContent = pages.length ? 'Add another page' : 'Add a page';
+    els.newEntryBtn.disabled = pages.length === 0 && !state.photo;
+    renderSaveButton();
+    if (state.running) return; // the streaming counter owns the hero mid-read
+    const total = pages.reduce((s, p) => s + p.count, 0);
+    if (pages.length === 0) {
+      els.total.textContent = '—';
+      els.sub.textContent = state.photo ? 'Photo loaded — press Count words.' : 'Choose a page and press Count.';
+    } else {
+      els.total.textContent = String(total);
+      els.sub.textContent = pages.length + (pages.length === 1 ? ' page' : ' pages') + ' · ' + total +
+        ' words' + (state.photo ? ' — new photo staged' : '');
+    }
+  }
+
+  function renderSelectedPage() {
+    const pages = state.entry ? state.entry.pages : [];
+    const p = pages[state.selectedPage];
+    if (!p) return;
+    renderTranscript(p.transcript, p.perLine, p.lowConfidence);
+    els.overlaySlot.replaceChildren();
+    if (p.overlay) {
+      const img = document.createElement('img');
+      img.src = p.overlay;
+      img.alt = 'The straightened page with ' + p.lines + ' detected line' + (p.lines === 1 ? '' : 's') + ' boxed';
+      img.title = 'Open full size';
+      img.addEventListener('click', async () => {
+        const blob = await (await fetch(p.overlay)).blob();
+        window.open(URL.createObjectURL(blob), '_blank');
+      });
+      els.overlaySlot.appendChild(img);
+      els.overlayCaption.textContent = 'Page ' + (state.selectedPage + 1) + ' — ' + p.lines +
+        ' line' + (p.lines === 1 ? '' : 's') + ' detected on the straightened page.';
+    } else {
+      els.overlayCaption.textContent = 'Page ' + (state.selectedPage + 1) +
+        " — the overlay image couldn't be kept for this page (device storage was full).";
+    }
+    els.overlayCard.hidden = false;
+  }
+
+  function removePage(i) {
+    state.entry.pages.splice(i, 1);
+    if (state.entry.pages.length === 0) {
+      state.entry = null;
+      state.selectedPage = -1;
+      clearEntry();
+      els.transcriptCard.hidden = true;
+      els.overlayCard.hidden = true;
+      els.transcriptList.replaceChildren();
+      els.overlaySlot.replaceChildren();
+      setStatus('Entry is empty again — add a page.');
+    } else {
+      if (state.selectedPage === i) state.selectedPage = Math.min(i, state.entry.pages.length - 1);
+      else if (state.selectedPage > i) state.selectedPage -= 1;
+      persistEntry();
+      renderSelectedPage();
+      setStatus('Page removed.');
+    }
+    renderEntry();
+  }
+
+  function showStagedOverlay() {
+    const ph = state.photo;
+    ph.overlayCanvas.setAttribute('role', 'img');
+    ph.overlayCanvas.setAttribute('aria-label',
+      ph.lines === 0 ? 'The straightened page — no handwritten lines found'
+        : 'The straightened page with ' + ph.lines + ' detected line' + (ph.lines > 1 ? 's' : '') + ' boxed');
+    els.overlaySlot.replaceChildren(ph.overlayCanvas);
+    ph.overlayCanvas.title = 'Open full size';
+    ph.overlayCanvas.addEventListener('click', () => {
+      ph.overlayCanvas.toBlob((blob) => { if (blob) window.open(URL.createObjectURL(blob), '_blank'); }, 'image/png');
+    });
+    els.overlayCaption.textContent = (ph.lines === 0
+      ? "No handwritten lines were found on this photo — nothing is boxed. InkCount looks for rows of English handwriting; drawings, printed pages, and non-English text won't register."
+      : 'New photo — ' + ph.lines + ' line' + (ph.lines > 1 ? 's' : '') + ' detected on the straightened page. Press Count words to read them.')
+      + (DEBUG && ph.rejectedCount ? ' [debug: ' + ph.rejectedCount + ' rejected band' + (ph.rejectedCount > 1 ? 's' : '') + ' in red]' : '');
+    els.overlayCard.hidden = false;
+  }
+
+  async function analyzePhoto() {
+    // Stage 1 of the old run(), moved to load time: warnings and the overlay
+    // appear in ~2-3 s, BEFORE the ~15 s model read.
+    const mine = state.photo;
+    setStatus('Straightening and reading the page layout…');
+    const staged = await withMats(async (scope) => {
+      const pre = preprocess(state.photo.canvas, scope);
+      const segs = segmentLines(pre, scope);
+      const est = estimateWords(pre, segs);
+      const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes, segs.rejected);
+      if (DEBUG && segs.rejected) console.log('[inkcount debug] rejected bands:', JSON.stringify(segs.rejected));
+      return { crops: segs.map((s) => s.canvas), overlayCanvas: overlay, skewAngle: pre.skewAngle,
+        textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length };
+    });
+    if (state.photo !== mine) return; // photo was cleared or replaced while analyzing
+    Object.assign(state.photo, staged);
+    showStagedOverlay();
+    renderWarnings(evaluatePreflight(staged));
+    setStatus(staged.lines === 0 ? 'No handwriting found in this photo — try another.' : 'Ready — press Count words.');
+    updateRunEnabled();
+  }
+
+  async function loadInto(source, name, loadingMessage) {
+    state.loading = true;
+    updateRunEnabled();
+    setStatus(loadingMessage);
+    hideError();
+    try {
+      const canvas = await decodeToCanvas(source);
+      state.photo = { canvas, name, crops: null };
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', 'Photo of your page: ' + name);
+      els.imageSlot.replaceChildren(canvas);
+      els.label.textContent = name + ' · ' + canvas.width + ' × ' + canvas.height + ' px';
+      renderWarnings([]);
+      state.loading = false;
+      renderEntry();
+      if (state.cvReady) await analyzePhoto();
+      else setStatus('Image loaded. Preparing the analyzer…');
+    } catch (e) {
+      state.loading = false;
+      state.photo = null;
+      setStatus('Ready.');
+      showError(humanError('That image could not be opened', e));
+      renderEntry();
+    }
+    updateRunEnabled();
+  }
+
+  async function countCurrentPhoto() {
+    if (state.running || !state.photo || !state.photo.crops || state.photo.lines === 0) return;
+    const ph = state.photo; // captured now — loadInto can replace state.photo while this awaits
     state.running = true;
     hideError();
-    clearResults();
-    updateRunEnabled();
     els.reset.disabled = true;
+    els.newEntryBtn.disabled = true;
+    els.saveEntryBtn.disabled = true;
+    updateRunEnabled();
     const t0 = performance.now();
+    const baseTotal = state.entry ? entryTotal(state.entry) : 0;
+    const pageNo = (state.entry ? state.entry.pages.length : 0) + 1;
     try {
-      // Stage 1: straighten and segment. (Geometry is used for the overlay's
-      // word boxes only — never for a displayed count: rough estimates were
-      // wildly wrong on non-handwriting images, e.g. 230 on an illustration.)
-      setStatus('Straightening and reading the page layout…');
-      const staged = await withMats(async (scope) => {
-        const pre = preprocess(state.canvas, scope);
-        const segs = segmentLines(pre, scope);
-        const est = estimateWords(pre, segs);
-        const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes, segs.rejected);
-        if (DEBUG && segs.rejected) console.log('[inkcount debug] rejected bands:', JSON.stringify(segs.rejected));
-        return { crops: segs.map((s) => s.canvas), overlay, skew: pre.skewAngle, lines: segs.length, rejectedCount: (segs.rejected || []).length };
-      });
-
-      staged.overlay.setAttribute('role', 'img');
-      staged.overlay.setAttribute('aria-label',
-        staged.lines === 0 ? 'The straightened page — no handwritten lines found'
-          : 'The straightened page with ' + staged.lines + ' detected line' + (staged.lines > 1 ? 's' : '') + ' boxed');
-      els.overlaySlot.replaceChildren(staged.overlay);
-      staged.overlay.title = 'Open full size';
-      staged.overlay.addEventListener('click', () => {
-        staged.overlay.toBlob((blob) => {
-          if (blob) window.open(URL.createObjectURL(blob), '_blank');
-        }, 'image/png');
-      });
-      els.overlayCaption.textContent = (staged.lines === 0
-        ? 'No handwritten lines were found on this image — nothing is boxed. InkCount looks for rows of English handwriting; drawings, printed pages, and non-English text won\'t register.'
-        : staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' detected on the straightened page — violet boxes are counted lines, amber patches are the ink clusters inside them.')
-        + (DEBUG && staged.rejectedCount ? ' [debug: ' + staged.rejectedCount + ' rejected band' + (staged.rejectedCount > 1 ? 's' : '') + ' in red]' : '');
-      els.overlayCard.hidden = false;
-
-      if (staged.lines === 0) {
-        showCount(0, 'No handwritten lines were detected on this image.');
-        showError('InkCount could not find any handwritten lines. Try a clearer, closer photo of a handwritten page (English only).');
-        setStatus('Done.');
-        return;
-      }
-
-      els.sub.textContent = staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' found — reading them now…';
-
-      // Stage 2: recognition model (downloads once, then cached by the browser).
       setStatus('Loading the handwriting reader…');
       els.progress.hidden = false;
       els.progress.removeAttribute('max');
@@ -234,59 +372,103 @@ export function initUI() {
           setStatus('Downloading the handwriting reader (one-time)… ' + Math.round(p.progress || 0) + '%');
         }
       });
-
-      // Stage 3: read every line, streaming the running count with the same
-      // hallucination-exclusion rules as the final tally.
-      els.progress.max = staged.crops.length;
+      els.progress.max = ph.crops.length;
       els.progress.value = 0;
       const seen = [];
-      const transcripts = await recognizeLines(staged.crops, (i, n, text) => {
+      const transcripts = await recognizeLines(ph.crops, (i, n, text) => {
         seen.push(text);
         els.progress.value = i + 1;
-        setStatus('Reading line ' + (i + 1) + ' of ' + n + '…');
-        showCount(countWords(seen).total, 'so far — reading line ' + (i + 1) + ' of ' + n + '…');
+        setStatus('Reading line ' + (i + 1) + ' of ' + n + ' on page ' + pageNo + '…');
+        showCount(baseTotal + countWords(seen).total, 'so far — reading line ' + (i + 1) + ' of ' + n + '…');
       });
-
       const { total, perLine, lowConfidence } = countWords(transcripts);
       const flagged = lowConfidence.filter(Boolean).length;
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      showCount(total,
-        'words on this page · ' + staged.lines + ' line' + (staged.lines > 1 ? 's' : '') + ' · ' + secs + 's' +
-        (flagged ? ' · ' + flagged + ' line' + (flagged > 1 ? 's' : '') + ' not counted' : ''));
-      renderTranscript(transcripts, perLine, lowConfidence);
+      if (!state.entry) state.entry = newEntry();
+      state.entry.pages.push({
+        name: ph.name, count: total, lines: ph.lines, secs: Number(secs),
+        transcript: transcripts, perLine, lowConfidence,
+        thumb: makeThumb(ph.canvas, 160, 0.7),
+        overlay: makeThumb(ph.overlayCanvas, 1000, 0.75),
+      });
+      state.selectedPage = state.entry.pages.length - 1;
+      persistEntry();
+      if (state.photo === ph) { // still ours — a newer staged photo must survive untouched
+        state.photo = null; // full-res canvas, crops, and overlay canvas all released
+        els.imageSlot.replaceChildren();
+        els.label.textContent = 'No image loaded.';
+        els.fileInput.value = '';
+        els.cameraInput.value = '';
+        renderWarnings([]);
+      }
       els.progress.hidden = true;
-      // The word count lives here too: #status-text is the page's polite live
-      // region, so screen readers hear the result without a chatty live
-      // region on the streaming counter.
-      setStatus('Done in ' + secs + 's — ' + total + ' words.');
+      state.running = false;
+      renderEntry();
+      renderSelectedPage();
+      setStatus('Page ' + pageNo + ' done in ' + secs + 's — ' + total + ' word' + (total === 1 ? '' : 's') +
+        (flagged ? ' (' + flagged + ' line' + (flagged > 1 ? 's' : '') + ' not counted)' : '') +
+        '. Entry total: ' + entryTotal(state.entry) + '.');
     } catch (e) {
+      state.running = false;
       showError(humanError('Counting failed', e));
       setStatus('Error.');
-      showCount('—', 'Something went wrong.');
       els.progress.hidden = true;
+      renderEntry();
     } finally {
       state.running = false;
+      renderSaveButton();
       els.reset.disabled = false;
+      els.newEntryBtn.disabled = false;
       updateRunEnabled();
     }
   }
 
-  function reset() {
-    state.canvas = null;
-    state.name = null;
+  function clearPhoto() {
+    state.photo = null;
     state.loading = false;
-    clearResults();
-    hideError();
     els.fileInput.value = '';
+    els.cameraInput.value = '';
     els.imageSlot.replaceChildren();
     els.label.textContent = 'No image loaded.';
-    setStatus(state.cvReady ? 'Ready — add a page.' : 'Preparing the analyzer…');
+    renderWarnings([]);
+    els.progress.hidden = true;
+    hideError();
+    if (state.selectedPage >= 0 && state.entry) renderSelectedPage();
+    else { els.transcriptCard.hidden = true; els.overlayCard.hidden = true; els.transcriptList.replaceChildren(); els.overlaySlot.replaceChildren(); }
+    renderEntry();
+    setStatus(state.cvReady ? (state.entry ? 'Ready — add another page.' : 'Ready — add a page.') : 'Preparing the analyzer…');
+    updateRunEnabled();
+  }
+
+  function startNewEntry() {
+    if (state.running) { setStatus('Finish the current count first.'); return; }
+    state.entry = null;
+    state.selectedPage = -1;
+    state.photo = null;
+    clearEntry();
+    els.fileInput.value = '';
+    els.cameraInput.value = '';
+    els.imageSlot.replaceChildren();
+    els.label.textContent = 'No image loaded.';
+    renderWarnings([]);
+    els.transcriptCard.hidden = true;
+    els.overlayCard.hidden = true;
+    els.transcriptList.replaceChildren();
+    els.overlaySlot.replaceChildren();
+    els.progress.hidden = true;
+    hideError();
+    renderEntry();
+    setStatus('New entry started — add a page.');
     updateRunEnabled();
   }
 
   els.fileInput.addEventListener('change', () => {
     const f = els.fileInput.files[0];
     if (f) loadInto(f, f.name, 'Reading image…');
+  });
+  els.cameraInput.addEventListener('change', () => {
+    const f = els.cameraInput.files[0];
+    if (f) loadInto(f, f.name, 'Reading photo…');
   });
   els.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); els.dropZone.classList.add('dragging'); });
   els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('dragging'));
@@ -305,8 +487,53 @@ export function initUI() {
       showError(humanError('The sample page could not be loaded', e));
     }
   });
-  els.run.addEventListener('click', run);
-  els.reset.addEventListener('click', reset);
+  els.run.addEventListener('click', countCurrentPhoto);
+  els.reset.addEventListener('click', clearPhoto);
+  els.newEntryBtn.addEventListener('click', () => {
+    if (state.running) return;
+    const unsaved = state.entry && state.entry.pages.length > 0 && !isEntrySaved(state.entry);
+    if (unsaved) inlineConfirm(els.newEntryBtn, startNewEntry);
+    else startNewEntry();
+  });
+
+  function renderHistoryCard() {
+    const rows = loadHistory();
+    els.historyCard.hidden = rows.length === 0;
+    renderHistory(els.historyList, rows, {
+      onDelete: (row, btn) => inlineConfirm(btn, () => { deleteHistoryRow(row.id); renderHistoryCard(); renderSaveButton(); setStatus('Entry deleted from history.'); }),
+    });
+  }
+
+  function renderSaveButton() {
+    const pages = state.entry ? state.entry.pages.length : 0;
+    if (pages === 0) {
+      els.saveEntryBtn.disabled = true;
+      els.saveEntryBtn.textContent = 'Save entry';
+      return;
+    }
+    const saved = isEntrySaved(state.entry);
+    els.saveEntryBtn.disabled = state.running || saved;
+    els.saveEntryBtn.textContent = saved ? 'Saved ✓' : 'Save entry';
+  }
+
+  els.saveEntryBtn.addEventListener('click', () => {
+    if (!state.entry || state.entry.pages.length === 0) return;
+    if (!storageAvailable()) {
+      showError("Couldn't save — this browser is blocking local storage (private mode?). The count still works; it just can't be kept.");
+      return;
+    }
+    const row = saveToHistory(state.entry);
+    if (!row) {
+      showError("Couldn't save — this device's storage is full.");
+      return;
+    }
+    renderHistoryCard();
+    renderSaveButton();
+    setStatus('Entry saved to this device.');
+  });
+  els.clearHistoryBtn.addEventListener('click', () => {
+    inlineConfirm(els.clearHistoryBtn, () => { clearHistory(); renderHistoryCard(); renderSaveButton(); setStatus('History cleared.'); });
+  });
 
   // Ask the browser not to evict our ~80 MB cached model under storage
   // pressure (iOS especially). Fire-and-forget; denial is fine.
@@ -319,12 +546,30 @@ export function initUI() {
     });
   }
 
-  setStatus('Preparing the analyzer…');
+  state.entry = loadEntry();
+  if (state.entry && state.entry.pages.length) {
+    state.selectedPage = state.entry.pages.length - 1;
+    renderEntry();
+    renderSelectedPage();
+    setStatus('Restored your in-progress entry. Preparing the analyzer…');
+  } else {
+    state.entry = null;
+    renderEntry();
+    setStatus('Preparing the analyzer…');
+  }
+  renderHistoryCard();
   updateRunEnabled();
-  loadOpenCV().then(() => {
+  loadOpenCV().then(async () => {
     state.cvReady = true;
     if (!/ — Ready$/.test(document.title)) document.title += ' — Ready';
-    setStatus(state.canvas ? 'Ready — press Count words.' : 'Ready — add a page.');
+    if (state.photo && !state.photo.crops) {
+      // A photo loaded before OpenCV finished — analyze it now. Errors here
+      // must not become unhandled rejections (the suite fails on page errors).
+      try { await analyzePhoto(); }
+      catch (e) { showError(humanError('That photo could not be analyzed', e)); setStatus('Ready.'); }
+    } else {
+      setStatus(state.photo ? 'Ready — press Count words.' : (state.entry ? 'Ready — add another page.' : 'Ready — add a page.'));
+    }
     updateRunEnabled();
   }).catch((e) => {
     showError('The analyzer failed to load: ' + (e && e.message ? e.message : String(e)) + ' — reload the page to retry.');
