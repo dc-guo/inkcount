@@ -92,7 +92,7 @@ export function initUI() {
     const cancel = () => { pair.remove(); trigger.hidden = false; trigger.focus(); };
     yes.addEventListener('click', () => {
       pair.remove(); trigger.hidden = false; onYes();
-      if (!document.contains(trigger) || trigger.disabled || trigger.hidden) {
+      if (!document.contains(trigger) || trigger.disabled || trigger.hidden || !trigger.offsetParent) {
         const s = document.getElementById('status-text');
         if (s) { s.tabIndex = -1; s.focus(); }
       }
@@ -222,6 +222,7 @@ export function initUI() {
     });
     els.inputTitle.textContent = pages.length ? 'Add another page' : 'Add a page';
     els.newEntryBtn.disabled = pages.length === 0 && !state.photo;
+    renderSaveButton();
     if (state.running) return; // the streaming counter owns the hero mid-read
     const total = pages.reduce((s, p) => s + p.count, 0);
     if (pages.length === 0) {
@@ -232,7 +233,6 @@ export function initUI() {
       els.sub.textContent = pages.length + (pages.length === 1 ? ' page' : ' pages') + ' · ' + total +
         ' words' + (state.photo ? ' — new photo staged' : '');
     }
-    renderSaveButton();
   }
 
   function renderSelectedPage() {
@@ -355,6 +355,7 @@ export function initUI() {
     hideError();
     els.reset.disabled = true;
     els.newEntryBtn.disabled = true;
+    els.saveEntryBtn.disabled = true;
     updateRunEnabled();
     const t0 = performance.now();
     const baseTotal = state.entry ? entryTotal(state.entry) : 0;
@@ -414,6 +415,7 @@ export function initUI() {
       renderEntry();
     } finally {
       state.running = false;
+      renderSaveButton();
       els.reset.disabled = false;
       els.newEntryBtn.disabled = false;
       updateRunEnabled();
@@ -491,7 +493,7 @@ export function initUI() {
     const rows = loadHistory();
     els.historyCard.hidden = rows.length === 0;
     renderHistory(els.historyList, rows, {
-      onDelete: (row, btn) => inlineConfirm(btn, () => { deleteHistoryRow(row.id); renderHistoryCard(); renderSaveButton(); }),
+      onDelete: (row, btn) => inlineConfirm(btn, () => { deleteHistoryRow(row.id); renderHistoryCard(); renderSaveButton(); setStatus('Entry deleted from history.'); }),
     });
   }
 
@@ -503,7 +505,7 @@ export function initUI() {
       return;
     }
     const saved = isEntrySaved(state.entry);
-    els.saveEntryBtn.disabled = saved;
+    els.saveEntryBtn.disabled = state.running || saved;
     els.saveEntryBtn.textContent = saved ? 'Saved ✓' : 'Save entry';
   }
 
@@ -523,7 +525,7 @@ export function initUI() {
     setStatus('Entry saved to this device.');
   });
   els.clearHistoryBtn.addEventListener('click', () => {
-    inlineConfirm(els.clearHistoryBtn, () => { clearHistory(); renderHistoryCard(); renderSaveButton(); });
+    inlineConfirm(els.clearHistoryBtn, () => { clearHistory(); renderHistoryCard(); renderSaveButton(); setStatus('History cleared.'); });
   });
 
   // Ask the browser not to evict our ~80 MB cached model under storage
