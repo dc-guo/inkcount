@@ -29,11 +29,17 @@
       <h2 id="input-title">Add a page</h2>
       <p class="muted">Photograph your handwritten page — InkCount counts the words right on your device.
         JPG, PNG, WebP or HEIC (iPhone photos work).</p>
-      <label class="pill-button pill-primary" for="file-input">
+      <label class="pill-button pill-primary" for="camera-input" id="camera-label">
+        <span><span aria-hidden="true">📷 </span>Take photo</span>
+        <input type="file" id="camera-input" accept="image/*" capture="environment"
+               aria-label="Take a photo of a handwritten page with your camera">
+      </label>
+      <label class="pill-button pill-primary" for="file-input" id="choose-label">
         <span><span aria-hidden="true">＋ </span>Choose photo</span>
         <input type="file" id="file-input" accept="image/*,.heic,.heif" aria-label="Choose a photo of a handwritten page">
       </label>
       <button type="button" id="btn-sample" class="pill-button pill-ghost">Try a sample page</button>
+      <p class="muted small framing-tip">Fill the frame with the page — straight on, in good light.</p>
       <p class="muted small" id="active-image-label">No image loaded.</p>
       <ul id="preflight-warnings" class="preflight" aria-live="polite"></ul>
       <div id="image-slot" class="image-slot"></div>

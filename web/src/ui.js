@@ -40,7 +40,7 @@ export function initUI() {
     return;
   }
   const els = {
-    fileInput: $('file-input'), dropZone: $('drop-zone'), sample: $('btn-sample'),
+    fileInput: $('file-input'), cameraInput: $('camera-input'), dropZone: $('drop-zone'), sample: $('btn-sample'),
     run: $('btn-run'), reset: $('btn-reset'), newEntryBtn: $('btn-new-entry'),
     status: $('status-text'), progress: $('progress'), error: $('error-banner'),
     label: $('active-image-label'), imageSlot: $('image-slot'), inputTitle: $('input-title'),
@@ -398,6 +398,7 @@ export function initUI() {
         els.imageSlot.replaceChildren();
         els.label.textContent = 'No image loaded.';
         els.fileInput.value = '';
+        els.cameraInput.value = '';
         renderWarnings([]);
       }
       els.progress.hidden = true;
@@ -426,6 +427,7 @@ export function initUI() {
     state.photo = null;
     state.loading = false;
     els.fileInput.value = '';
+    els.cameraInput.value = '';
     els.imageSlot.replaceChildren();
     els.label.textContent = 'No image loaded.';
     renderWarnings([]);
@@ -445,6 +447,7 @@ export function initUI() {
     state.photo = null;
     clearEntry();
     els.fileInput.value = '';
+    els.cameraInput.value = '';
     els.imageSlot.replaceChildren();
     els.label.textContent = 'No image loaded.';
     renderWarnings([]);
@@ -462,6 +465,10 @@ export function initUI() {
   els.fileInput.addEventListener('change', () => {
     const f = els.fileInput.files[0];
     if (f) loadInto(f, f.name, 'Reading image…');
+  });
+  els.cameraInput.addEventListener('change', () => {
+    const f = els.cameraInput.files[0];
+    if (f) loadInto(f, f.name, 'Reading photo…');
   });
   els.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); els.dropZone.classList.add('dragging'); });
   els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('dragging'));

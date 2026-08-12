@@ -416,6 +416,15 @@ async function runUI() {
     })`));
     step('delete-history-row', afterDelete.rows === 0 && afterDelete.cardHidden === true, afterDelete);
 
+    const camera = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      exists: !!document.getElementById('camera-input'),
+      capture: document.getElementById('camera-input') ? document.getElementById('camera-input').getAttribute('capture') : null,
+      labelHiddenOnDesktop: getComputedStyle(document.getElementById('camera-label')).display === 'none',
+      tipHiddenOnDesktop: getComputedStyle(document.querySelector('.framing-tip')).display === 'none',
+    })`));
+    step('camera-first-markup', camera.exists && camera.capture === 'environment' &&
+      camera.labelHiddenOnDesktop === true && camera.tipHiddenOnDesktop === true, camera);
+
     const audit = await page.collectAudit();
     out.consoleErrors = audit.errors;
     out.externalRequests = audit.resources.filter((u) => !u.startsWith(BASE + '/'));

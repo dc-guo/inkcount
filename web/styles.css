@@ -167,6 +167,16 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* ---------- camera-first (coarse pointers = touch devices) ---------- */
+#camera-label { display: none; }
+.framing-tip { display: none; }
+@media (pointer: coarse) {
+  #camera-label { display: inline-flex; }
+  #choose-label { background: var(--lilac); color: var(--violet); }
+  #choose-label span > span[aria-hidden] { display: none; }
+  .framing-tip { display: block; margin: -0.2rem 0 0.6rem; }
+}
+
 .image-slot { margin-top: 0.4rem; }
 .image-slot canvas, .image-slot img {
   display: block;
