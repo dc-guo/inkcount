@@ -347,6 +347,7 @@ export function initUI() {
 
   async function countCurrentPhoto() {
     if (state.running || !state.photo || !state.photo.crops || state.photo.lines === 0) return;
+    const ph = state.photo; // captured now — loadInto can replace state.photo while this awaits
     state.running = true;
     hideError();
     els.reset.disabled = true;
@@ -367,10 +368,10 @@ export function initUI() {
           setStatus('Downloading the handwriting reader (one-time)… ' + Math.round(p.progress || 0) + '%');
         }
       });
-      els.progress.max = state.photo.crops.length;
+      els.progress.max = ph.crops.length;
       els.progress.value = 0;
       const seen = [];
-      const transcripts = await recognizeLines(state.photo.crops, (i, n, text) => {
+      const transcripts = await recognizeLines(ph.crops, (i, n, text) => {
         seen.push(text);
         els.progress.value = i + 1;
         setStatus('Reading line ' + (i + 1) + ' of ' + n + ' on page ' + pageNo + '…');
@@ -381,18 +382,20 @@ export function initUI() {
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       if (!state.entry) state.entry = newEntry();
       state.entry.pages.push({
-        name: state.photo.name, count: total, lines: state.photo.lines, secs: Number(secs),
+        name: ph.name, count: total, lines: ph.lines, secs: Number(secs),
         transcript: transcripts, perLine, lowConfidence,
-        thumb: makeThumb(state.photo.canvas, 160, 0.7),
-        overlay: makeThumb(state.photo.overlayCanvas, 1000, 0.75),
+        thumb: makeThumb(ph.canvas, 160, 0.7),
+        overlay: makeThumb(ph.overlayCanvas, 1000, 0.75),
       });
       state.selectedPage = state.entry.pages.length - 1;
       persistEntry();
-      state.photo = null; // full-res canvas, crops, and overlay canvas all released
-      els.imageSlot.replaceChildren();
-      els.label.textContent = 'No image loaded.';
-      els.fileInput.value = '';
-      renderWarnings([]);
+      if (state.photo === ph) { // still ours — a newer staged photo must survive untouched
+        state.photo = null; // full-res canvas, crops, and overlay canvas all released
+        els.imageSlot.replaceChildren();
+        els.label.textContent = 'No image loaded.';
+        els.fileInput.value = '';
+        renderWarnings([]);
+      }
       els.progress.hidden = true;
       state.running = false;
       renderEntry();
@@ -431,7 +434,7 @@ export function initUI() {
   }
 
   function startNewEntry() {
-    if (state.running) return;
+    if (state.running) { setStatus('Finish the current count first.'); return; }
     state.entry = null;
     state.selectedPage = -1;
     state.photo = null;

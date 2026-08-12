@@ -307,8 +307,21 @@ async function runUI() {
     step('no-error-banner', final.errorHidden === true, final);
     step('page-card-added', final.pageCards === 1, final);
 
-    // Second page: totals accumulate, per-page counts stay sane.
-    await loadSampleAndCount(2, 'page 2');
+    // Second page — and while it is being read, stage the NEXT photo. The
+    // count must complete on the captured photo and leave the new one staged.
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'page 2 run enabled');
+    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    // Poll the strip, not the status line — the staged photo's analyzer can
+    // overwrite the "Page 2 done" status within a poll interval.
+    await pollEval(page.cdp, `document.querySelectorAll('#pages-strip .page-card').length`, (n) => n === 2, 600000, 'page 2 counted');
+    const midStage = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      label: document.getElementById('active-image-label').textContent,
+      runEnabledEventually: true,
+    })`));
+    step('stage-photo-mid-count', /sample_page\.jpg/.test(midStage.label), midStage);
+
     const multi = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       total: parseInt(document.getElementById('result-total').textContent, 10),
       pageCards: document.querySelectorAll('#pages-strip .page-card').length,
