@@ -252,57 +252,121 @@ async function runUI() {
     log(`[ui] ${label}: ${ok ? 'ok' : 'FAILED ' + JSON.stringify(detail)}`);
     if (!ok) throw new Error('UI step failed: ' + label);
   };
+  const freshReady = async (originBefore, label) => pollEval(page.cdp,
+    `String(performance.timeOrigin) + '|' + (document.title.endsWith(' — Ready') ? '1' : '0')`,
+    (v) => { const p = String(v).split('|'); return Number(p[0]) !== originBefore && p[1] === '1'; },
+    300000, label);
+  // Load the sample and count it. expectPage pins the status regex to the page
+  // number so a stale "Page N done" from the PREVIOUS count can't false-pass.
+  const loadSampleAndCount = async (expectPage, label) => {
+    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, label + ' run enabled');
+    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
+    await pollEval(page.cdp, `document.getElementById('status-text').textContent`,
+      (s) => new RegExp('^Page ' + expectPage + ' done').test(s || ''), 600000, label + ' done');
+  };
   try {
+    // Clean boot: gates share this origin's localStorage, so wipe and reload
+    // before asserting anything (cross-gate storage bleed is a known hazard).
     await page.goto(`${BASE}/web/index.html`);
-    const readyTitle = await pollTitle(page.id, (t) => / — Ready$/.test(t || ''), 300000, 'cv ready');
-    step('opencv-ready', true, readyTitle);
+    await pollTitle(page.id, (t) => / — Ready$/.test(t || ''), 300000, 'cv ready');
+    await evalJS(page.cdp, `localStorage.clear()`);
+    let origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?clean=1`);
+    await freshReady(origin, 'clean boot ready');
+    step('opencv-ready', true, null);
 
+    // Sample loads -> stage-1 analysis at load time: overlay already visible,
+    // zero pre-flight warnings on the known-good sample.
     await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
     await pollEval(page.cdp, `document.getElementById('active-image-label').textContent`, (s) => /sample_page\.jpg/.test(s || ''), 60000, 'sample label');
-    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 60000, 'run enabled');
-    step('sample-loaded', true, null);
+    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'run enabled');
+    const stagedState = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      overlayShown: !document.getElementById('overlay-card').hidden,
+      overlayCanvases: document.querySelectorAll('#overlay-slot canvas').length,
+      warnings: document.querySelectorAll('#preflight-warnings li').length,
+    })`));
+    step('analyze-on-load', stagedState.overlayShown === true && stagedState.overlayCanvases === 1 && stagedState.warnings === 0, stagedState);
 
     await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
-    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Done/.test(s || ''), 600000, 'run done');
+    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Page 1 done/.test(s || ''), 600000, 'page 1 done');
     const final = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       total: document.getElementById('result-total').textContent,
       estimateChipGone: document.getElementById('estimate-chip') === null,
       transcriptItems: document.querySelectorAll('#transcript-list li').length,
-      overlayCanvases: document.querySelectorAll('#overlay-slot canvas').length,
+      overlayEls: document.querySelectorAll('#overlay-slot canvas, #overlay-slot img').length,
       errorHidden: document.getElementById('error-banner').hidden,
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
     })`));
     out.final = final;
-    const total = parseInt(final.total, 10);
-    step('count-plausible', total >= 170 && total <= 200, final);
+    const total1 = parseInt(final.total, 10);
+    step('count-plausible', total1 >= 170 && total1 <= 200, final);
     step('estimate-chip-removed', final.estimateChipGone === true, final);
     step('transcript-rendered', final.transcriptItems === 16, final);
-    step('overlay-rendered', final.overlayCanvases === 1, final);
+    step('overlay-rendered', final.overlayEls === 1, final);
     step('no-error-banner', final.errorHidden === true, final);
+    step('page-card-added', final.pageCards === 1, final);
+
+    // Second page: totals accumulate, per-page counts stay sane.
+    await loadSampleAndCount(2, 'page 2');
+    const multi = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      perPage: Array.from(document.querySelectorAll('#pages-strip .page-select')).map(
+        (b) => parseInt((b.textContent.match(/(\\d+) words?/) || [])[1], 10)),
+    })`));
+    step('two-pages', multi.pageCards === 2 && multi.total >= 340 && multi.total <= 400 &&
+      multi.perPage.length === 2 && multi.perPage.every((n) => n >= 170 && n <= 200), multi);
+
+    // Selecting page 1 shows page 1's details.
+    await evalJS(page.cdp, `document.querySelectorAll('#pages-strip .page-select')[0].click()`);
+    const sel = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      current: document.querySelectorAll('#pages-strip .page-select')[0].getAttribute('aria-current'),
+      caption: document.getElementById('overlay-caption').textContent,
+      transcriptItems: document.querySelectorAll('#transcript-list li').length,
+    })`));
+    step('select-page-1', sel.current === 'true' && /^Page 1/.test(sel.caption) && sel.transcriptItems === 16, sel);
+
+    // Remove page 2 through the inline confirm.
+    await evalJS(page.cdp, `document.querySelectorAll('#pages-strip .page-remove')[1].click()`);
+    await pollEval(page.cdp, `!!document.querySelector('#pages-strip .confirm-yes')`, (v) => v === true, 10000, 'remove confirm shown');
+    await evalJS(page.cdp, `document.querySelector('#pages-strip .confirm-yes').click()`);
+    const afterRemove = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+    })`));
+    step('remove-page', afterRemove.pageCards === 1 && afterRemove.total >= 170 && afterRemove.total <= 200, afterRemove);
+
+    // Refresh: the in-progress entry survives (real navigation, not a mock).
+    origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?reload=1`);
+    await freshReady(origin, 'ready after refresh');
+    const restored = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+    })`));
+    step('entry-restored', restored.pageCards === 1 && restored.total >= 170 && restored.total <= 200, restored);
+
+    // New entry clears the workspace (entry is unsaved -> inline confirm).
+    await evalJS(page.cdp, `document.getElementById('btn-new-entry').click()`);
+    await pollEval(page.cdp, `!!document.querySelector('.hero-actions .confirm-yes')`, (v) => v === true, 10000, 'new-entry confirm shown');
+    await evalJS(page.cdp, `document.querySelector('.hero-actions .confirm-yes').click()`);
+    const cleared = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      pageCards: document.querySelectorAll('#pages-strip .page-card').length,
+      total: document.getElementById('result-total').textContent,
+    })`));
+    step('new-entry', cleared.pageCards === 0 && cleared.total === '—', cleared);
+
+    // Counting still works after the refresh + new-entry cycle.
+    await loadSampleAndCount(1, 'post-refresh');
+    const totalAfter = await evalJS(page.cdp, `document.getElementById('result-total').textContent`);
+    step('refresh-then-run', parseInt(totalAfter, 10) >= 170 && parseInt(totalAfter, 10) <= 200, totalAfter);
 
     await evalJS(page.cdp, `document.getElementById('btn-reset').click()`);
     const reset = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       label: document.getElementById('active-image-label').textContent,
-      hidden: document.getElementById('results-section') ? document.getElementById('results-section').hidden : true,
     })`));
-    step('reset', /No image loaded/.test(reset.label), reset);
-
-    // The old title ends in " — Ready", and /json/list keeps reporting it for
-    // a beat after Page.navigate — a bare title poll passes instantly and the
-    // sample click lands on a page whose listeners aren't attached yet (the
-    // thrice-observed "refresh flake"). Require the NEW load (timeOrigin
-    // changed) AND its Ready title.
-    const originBefore = await evalJS(page.cdp, 'performance.timeOrigin');
-    await page.goto(`${BASE}/web/index.html?reload=1`);
-    await pollEval(page.cdp,
-      `String(performance.timeOrigin) + '|' + (document.title.endsWith(' — Ready') ? '1' : '0')`,
-      (v) => { const parts = String(v).split('|'); return Number(parts[0]) !== originBefore && parts[1] === '1'; },
-      300000, 'ready after refresh');
-    await evalJS(page.cdp, `document.getElementById('btn-sample').click()`);
-    await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'run enabled 2');
-    await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
-    await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Done/.test(s || ''), 600000, 'run after refresh');
-    const totalAfter = await evalJS(page.cdp, `document.getElementById('result-total').textContent`);
-    step('refresh-then-run', parseInt(totalAfter, 10) >= 170 && parseInt(totalAfter, 10) <= 200, totalAfter);
+    step('clear-photo', /No image loaded/.test(reset.label), reset);
 
     const audit = await page.collectAudit();
     out.consoleErrors = audit.errors;

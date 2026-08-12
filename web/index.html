@@ -26,7 +26,7 @@
 
     <!-- Input card -->
     <article class="card card-input" id="drop-zone">
-      <h2>Add a page</h2>
+      <h2 id="input-title">Add a page</h2>
       <p class="muted">Photograph your handwritten page — InkCount counts the words right on your device.
         JPG, PNG, WebP or HEIC (iPhone photos work).</p>
       <label class="pill-button pill-primary" for="file-input">
@@ -35,7 +35,9 @@
       </label>
       <button type="button" id="btn-sample" class="pill-button pill-ghost">Try a sample page</button>
       <p class="muted small" id="active-image-label">No image loaded.</p>
+      <ul id="preflight-warnings" class="preflight" aria-live="polite"></ul>
       <div id="image-slot" class="image-slot"></div>
+      <ul id="pages-strip" class="pages-strip" aria-label="Pages in this entry"></ul>
     </article>
 
     <!-- Hero count card -->
@@ -47,7 +49,8 @@
       <p class="hero-sub" id="result-sub">Choose a page and press Count.</p>
       <div class="hero-actions">
         <button type="button" id="btn-run" class="pill-button pill-dark" disabled><span aria-hidden="true">▶ </span>Count words</button>
-        <button type="button" id="btn-reset" class="pill-button pill-ghost">Reset</button>
+        <button type="button" id="btn-reset" class="pill-button pill-ghost">Clear photo</button>
+        <button type="button" id="btn-new-entry" class="pill-button pill-ghost">New entry</button>
       </div>
       <p class="status" id="status-text" role="status">Starting…</p>
       <progress id="progress" aria-label="Reading progress" hidden></progress>
