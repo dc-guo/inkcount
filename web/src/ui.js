@@ -90,7 +90,7 @@ export function initUI() {
     const cancel = () => { pair.remove(); trigger.hidden = false; trigger.focus(); };
     yes.addEventListener('click', () => {
       pair.remove(); trigger.hidden = false; onYes();
-      if (!document.contains(trigger)) {
+      if (!document.contains(trigger) || trigger.disabled || trigger.hidden) {
         const s = document.getElementById('status-text');
         if (s) { s.tabIndex = -1; s.focus(); }
       }
@@ -431,6 +431,7 @@ export function initUI() {
   }
 
   function startNewEntry() {
+    if (state.running) return;
     state.entry = null;
     state.selectedPage = -1;
     state.photo = null;
