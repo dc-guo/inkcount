@@ -64,6 +64,25 @@ try {
   if (failed && lastError) say('lastError: ' + (lastError.stack || lastError.message));
   if (failed && window.__consoleLog.length) say('--- console ---\n' + window.__consoleLog.slice(0, 10).join('\n'));
   if (totalMs > 30000) failed = failed || `too slow: ${(totalMs / 1000).toFixed(1)}s`;
+
+  // v8: resume-prior skips inference entirely for seeded lines.
+  {
+    let fired = 0;
+    const seeded = await recognizeLines([null], () => { fired++; }, ['seeded line']);
+    const ok = JSON.stringify(seeded) === JSON.stringify(['seeded line']) && fired === 0;
+    say(`${ok ? 'ok  ' : 'FAIL'} prior skip: out=${JSON.stringify(seeded)} onLine fired=${fired}`);
+    if (!ok && !failed) failed = 'prior skip';
+  }
+  // v8: consumed crops are released (slot nulled, length preserved).
+  {
+    const c = document.createElement('canvas'); c.width = 100; c.height = 32;
+    c.getContext('2d').fillStyle = '#fff'; c.getContext('2d').fillRect(0, 0, 100, 32);
+    const arr = [c];
+    const out = await recognizeLines(arr, null);
+    const ok = arr.length === 1 && arr[0] === null && out.length === 1 && typeof out[0] === 'string';
+    say(`${ok ? 'ok  ' : 'FAIL'} crop release: slot=${arr[0]} len=${arr.length} out=${JSON.stringify(out)}`);
+    if (!ok && !failed) failed = 'crop release';
+  }
 } catch (e) {
   failed = failed || 'exception';
   say('EXCEPTION: ' + (e.stack || e.message));

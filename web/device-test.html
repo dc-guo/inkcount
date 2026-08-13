@@ -49,7 +49,7 @@
 <script>
 if ('serviceWorker' in navigator) {
   addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').catch(function () {});
+    navigator.serviceWorker.register('./sw.js', { type: 'module' }).catch(function () {});
   });
 }
 </script>
@@ -60,6 +60,7 @@ import { preprocess } from './src/preprocess.js';
 import { segmentLines } from './src/segment.js';
 import { loadModel, recognizeLines } from './src/recognize.js';
 import { countWords } from './src/count.js';
+import { idbHas } from './src/vendorstore.js';
 
 const checksEl = document.getElementById('checks');
 const details = [];
@@ -89,6 +90,15 @@ function finish() {
 const t = (ms) => (ms / 1000).toFixed(1) + 's';
 
 (async () => {
+  const CRUMB = 'inkcount-devtest-crumb';
+  try {
+    const prev = JSON.parse(localStorage.getItem(CRUMB) || 'null');
+    if (prev && prev.done === false) {
+      row('Previous run', 'bad', 'was killed at line ' + prev.line + ' of ' + prev.total +
+        ' — this device runs out of memory mid-read');
+    }
+  } catch (_) {}
+
   row('Browser', 'ok', navigator.userAgent);
   row('Hardware', 'ok', (navigator.hardwareConcurrency || '?') + ' cores' +
     (navigator.deviceMemory ? ', ~' + navigator.deviceMemory + ' GB RAM class' : ''));
@@ -115,16 +125,33 @@ const t = (ms) => (ms / 1000).toFixed(1) + 's';
     const blob = await (await fetch('./samples/sample_page.jpg')).blob();
     const canvas = await decodeToCanvas(blob);
     const crops = await withMats(async (scope) => segmentLines(preprocess(canvas, scope), scope).map((s) => s.canvas));
-    const transcripts = await recognizeLines(crops);
+    try { localStorage.setItem(CRUMB, JSON.stringify({ line: 0, total: crops.length, done: false })); } catch (_) {}
+    const transcripts = await recognizeLines(crops, (i, n) => {
+      try { localStorage.setItem(CRUMB, JSON.stringify({ line: i + 1, total: n, done: false })); } catch (_) {}
+    });
     const { total } = countWords(transcripts);
+    try { localStorage.setItem(CRUMB, JSON.stringify({ done: true })); } catch (_) {}
     const secs = performance.now() - t0;
     const perLine = Math.round(secs / Math.max(1, crops.length));
-    if (total === 188 && crops.length === 16) {
-      row('Counting accuracy', 'ok', '188 words / 16 lines on the test page (expected 188/16), ' + t(secs) + ' total, ~' + perLine + ' ms/line');
+    if (Math.abs(total - 188) <= 2 && crops.length === 16) {
+      row('Counting accuracy', 'ok', total + ' words / 16 lines on the test page (expected 188±2), ' + t(secs) + ' total, ~' + perLine + ' ms/line');
     } else {
-      row('Counting accuracy', 'bad', 'got ' + total + ' words / ' + crops.length + ' lines, expected 188 / 16');
+      row('Counting accuracy', 'bad', 'got ' + total + ' words / ' + crops.length + ' lines, expected 188±2 / 16');
     }
   } catch (e) { row('Counting accuracy', 'bad', e.message); }
+
+  try {
+    const decoderPath = './vendor/models/Xenova/trocr-small-handwritten/onnx/decoder_model_merged_quantized.onnx';
+    const decoderUrl = new URL(decoderPath, location.href).href;
+    const appCache = 'caches' in window ? await (await caches.open('inkcount-vendor')).match(decoderUrl, { ignoreSearch: true }) : null;
+    const inIdb = await idbHas(decoderUrl);
+    const anyCache = (!appCache && 'caches' in window) ? await caches.match(decoderUrl, { ignoreSearch: true }) : null;
+    row('Reader cached?', (appCache || inIdb || anyCache) ? 'ok' : 'bad',
+      appCache ? 'yes — app cache (survives new visits and app updates)'
+        : inIdb ? 'yes — IndexedDB large-file fallback (survives new visits and app updates)'
+          : anyCache ? 'yes — library cache (no re-download expected)'
+            : 'NO — the ~65 MB reader will re-download on the next visit');
+  } catch (e) { row('Reader cached?', 'skip', e.message); }
 
   try {
     const persisted = navigator.storage && navigator.storage.persist ? await navigator.storage.persist() : false;

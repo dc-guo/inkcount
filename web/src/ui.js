@@ -8,7 +8,7 @@ import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
 import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb, loadHistory, saveToHistory, deleteHistoryRow, clearHistory, isEntrySaved, storageAvailable } from './store.js';
-import { evaluatePreflight } from './preflight.js';
+import { evaluatePreflight, medianLuminance } from './preflight.js';
 import { renderHistory } from './history.js';
 
 /* Bumped together with the <meta name="inkcount-version"> in index.html on
@@ -16,7 +16,7 @@ import { renderHistory } from './history.js';
  * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
  * crashed with "Cannot set properties of null" when this code addressed an
  * element the other version didn't have. Detect the mismatch and self-heal. */
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 
 export function initUI() {
   const $ = (id) => document.getElementById(id);
@@ -52,7 +52,11 @@ export function initUI() {
   };
 
   const state = { entry: null, selectedPage: -1, photo: null, running: false, loading: false, cvReady: false, memoryOnly: false };
-  // photo: { canvas, name, crops, overlayCanvas, skewAngle, textHeight, lines, rejectedCount } | null
+  // photo, mid-decode: { canvas, name, crops: null, fromStash } | null
+  // photo, staged (post analyzePhoto): { name, crops, lines, skewAngle, textHeight, rejectedCount,
+  //   thumb, overlayJpeg, preview, fromStash } — no canvas fields. analyzePhoto() snapshots the
+  //   JPEGs the rest of the flow needs and drops the full-res canvas, because during the model
+  //   read the only pixel data allowed to stay alive is the line crops (released one by one).
 
   const setStatus = (t) => { els.status.textContent = t; };
   const showError = (m) => { els.error.textContent = m; els.error.hidden = false; };
@@ -112,6 +116,36 @@ export function initUI() {
       state.memoryOnly = true;
       showError("This device's storage is full — this entry can't be kept across refreshes. Counting still works normally.");
     }
+  }
+
+  // Crash stash: iOS can kill the tab mid-read. While a photo is staged or
+  // being read, sessionStorage holds enough to resume on next boot — the
+  // staged photo's bytes, plus (once reading starts) how far the read got.
+  const STASH_PHOTO_KEY = 'inkcount-stash-photo-v1';
+  const STASH_PROGRESS_KEY = 'inkcount-stash-progress-v1';
+
+  function writeStashPhoto(name, dataUrl) {
+    try { sessionStorage.setItem(STASH_PHOTO_KEY, JSON.stringify({ name, dataUrl })); } catch (_) {}
+  }
+  function writeStashProgress(total, transcripts) {
+    try { sessionStorage.setItem(STASH_PROGRESS_KEY, JSON.stringify({ total, transcripts })); } catch (_) {}
+  }
+  function clearStashProgress() {
+    try { sessionStorage.removeItem(STASH_PROGRESS_KEY); } catch (_) {}
+  }
+  function clearStash() {
+    try { sessionStorage.removeItem(STASH_PHOTO_KEY); } catch (_) {}
+    clearStashProgress();
+  }
+  function readStash() {
+    try {
+      const photo = JSON.parse(sessionStorage.getItem(STASH_PHOTO_KEY));
+      if (!photo || typeof photo.dataUrl !== 'string' || typeof photo.name !== 'string') return null;
+      let progress = null;
+      try { progress = JSON.parse(sessionStorage.getItem(STASH_PROGRESS_KEY)); } catch (_) {}
+      if (progress && (!Array.isArray(progress.transcripts) || typeof progress.total !== 'number')) progress = null;
+      return { photo, progress };
+    } catch (_) { return null; }
   }
 
   function showCount(n, sub) {
@@ -281,17 +315,17 @@ export function initUI() {
     renderEntry();
   }
 
-  function showStagedOverlay() {
-    const ph = state.photo;
-    ph.overlayCanvas.setAttribute('role', 'img');
-    ph.overlayCanvas.setAttribute('aria-label',
-      ph.lines === 0 ? 'The straightened page — no handwritten lines found'
-        : 'The straightened page with ' + ph.lines + ' detected line' + (ph.lines > 1 ? 's' : '') + ' boxed');
-    els.overlaySlot.replaceChildren(ph.overlayCanvas);
-    ph.overlayCanvas.title = 'Open full size';
-    ph.overlayCanvas.addEventListener('click', () => {
-      ph.overlayCanvas.toBlob((blob) => { if (blob) window.open(URL.createObjectURL(blob), '_blank'); }, 'image/png');
+  function showStagedOverlay(ph) {
+    const img = document.createElement('img');
+    img.src = ph.overlayJpeg;
+    img.alt = ph.lines === 0 ? 'The straightened page — no handwritten lines found'
+      : 'The straightened page with ' + ph.lines + ' detected line' + (ph.lines > 1 ? 's' : '') + ' boxed';
+    img.title = 'Open full size';
+    img.addEventListener('click', async () => {
+      const blob = await (await fetch(ph.overlayJpeg)).blob();
+      window.open(URL.createObjectURL(blob), '_blank');
     });
+    els.overlaySlot.replaceChildren(img);
     els.overlayCaption.textContent = (ph.lines === 0
       ? "No handwritten lines were found on this photo — nothing is boxed. InkCount looks for rows of English handwriting; drawings, printed pages, and non-English text won't register."
       : 'New photo — ' + ph.lines + ' line' + (ph.lines > 1 ? 's' : '') + ' detected on the straightened page. Press Count words to read them.')
@@ -305,30 +339,51 @@ export function initUI() {
     const mine = state.photo;
     setStatus('Straightening and reading the page layout…');
     const staged = await withMats(async (scope) => {
-      const pre = preprocess(state.photo.canvas, scope);
+      const pre = preprocess(mine.canvas, scope);
       const segs = segmentLines(pre, scope);
       const est = estimateWords(pre, segs);
       const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes, segs.rejected);
       if (DEBUG && segs.rejected) console.log('[inkcount debug] rejected bands:', JSON.stringify(segs.rejected));
       return { crops: segs.map((s) => s.canvas), overlayCanvas: overlay, skewAngle: pre.skewAngle,
-        textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length };
+        textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length, medianLum: medianLuminance(pre.gray) };
     });
-    if (state.photo !== mine) return; // photo was cleared or replaced while analyzing
-    Object.assign(state.photo, staged);
-    showStagedOverlay();
+    if (state.photo !== mine) return;
+    // Snapshot every JPEG the rest of the flow needs, stash the photo for
+    // crash resume, then DROP the big canvases — during the model read the
+    // only pixel data alive is the line crops (released one by one).
+    mine.thumb = makeThumb(mine.canvas, 160, 0.7);
+    mine.overlayJpeg = makeThumb(staged.overlayCanvas, 1000, 0.75);
+    mine.preview = makeThumb(mine.canvas, 800, 0.8);
+    if (!mine.fromStash) { clearStashProgress(); writeStashPhoto(mine.name, makeThumb(mine.canvas, 2000, 0.8)); }
+    mine.crops = staged.crops;
+    mine.skewAngle = staged.skewAngle;
+    mine.textHeight = staged.textHeight;
+    mine.lines = staged.lines;
+    mine.rejectedCount = staged.rejectedCount;
+    mine.canvas = null;
+    showPreviewImage(mine);
+    showStagedOverlay(mine);
     renderWarnings(evaluatePreflight(staged));
     setStatus(staged.lines === 0 ? 'No handwriting found in this photo — try another.' : 'Ready — press Count words.');
     updateRunEnabled();
   }
 
-  async function loadInto(source, name, loadingMessage) {
+  function showPreviewImage(ph) {
+    const img = document.createElement('img');
+    img.src = ph.preview;
+    img.alt = 'Photo of your page: ' + ph.name;
+    els.imageSlot.replaceChildren(img);
+  }
+
+  async function loadInto(source, name, loadingMessage, { fromStash = false } = {}) {
     state.loading = true;
     updateRunEnabled();
     setStatus(loadingMessage);
     hideError();
+    if (!fromStash) clearStash(); // a manually staged photo invalidates any old stash
     try {
       const canvas = await decodeToCanvas(source);
-      state.photo = { canvas, name, crops: null };
+      state.photo = { canvas, name, crops: null, fromStash };
       canvas.setAttribute('role', 'img');
       canvas.setAttribute('aria-label', 'Photo of your page: ' + name);
       els.imageSlot.replaceChildren(canvas);
@@ -348,9 +403,8 @@ export function initUI() {
     updateRunEnabled();
   }
 
-  async function countCurrentPhoto() {
+  async function countCurrentPhoto(prior = []) {
     if (state.running || !state.photo || !state.photo.crops || state.photo.lines === 0) return;
-    const ph = state.photo; // captured now — loadInto can replace state.photo while this awaits
     state.running = true;
     hideError();
     els.reset.disabled = true;
@@ -358,6 +412,7 @@ export function initUI() {
     els.saveEntryBtn.disabled = true;
     updateRunEnabled();
     const t0 = performance.now();
+    const ph = state.photo; // captured now — loadInto can replace state.photo while this awaits
     const baseTotal = state.entry ? entryTotal(state.entry) : 0;
     const pageNo = (state.entry ? state.entry.pages.length : 0) + 1;
     try {
@@ -373,14 +428,16 @@ export function initUI() {
         }
       });
       els.progress.max = ph.crops.length;
-      els.progress.value = 0;
-      const seen = [];
+      els.progress.value = prior.length;
+      if (state.photo === ph) writeStashProgress(ph.crops.length, prior);
+      const seen = prior.slice();
       const transcripts = await recognizeLines(ph.crops, (i, n, text) => {
         seen.push(text);
+        if (state.photo === ph) writeStashProgress(n, seen);
         els.progress.value = i + 1;
         setStatus('Reading line ' + (i + 1) + ' of ' + n + ' on page ' + pageNo + '…');
         showCount(baseTotal + countWords(seen).total, 'so far — reading line ' + (i + 1) + ' of ' + n + '…');
-      });
+      }, prior);
       const { total, perLine, lowConfidence } = countWords(transcripts);
       const flagged = lowConfidence.filter(Boolean).length;
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
@@ -388,13 +445,15 @@ export function initUI() {
       state.entry.pages.push({
         name: ph.name, count: total, lines: ph.lines, secs: Number(secs),
         transcript: transcripts, perLine, lowConfidence,
-        thumb: makeThumb(ph.canvas, 160, 0.7),
-        overlay: makeThumb(ph.overlayCanvas, 1000, 0.75),
+        thumb: ph.thumb,
+        overlay: ph.overlayJpeg,
       });
       state.selectedPage = state.entry.pages.length - 1;
       persistEntry();
+      clearStashProgress();
       if (state.photo === ph) { // still ours — a newer staged photo must survive untouched
-        state.photo = null; // full-res canvas, crops, and overlay canvas all released
+        clearStash();
+        state.photo = null; // canvas, crops, and the overlay canvas were already released progressively — this drops the last reference
         els.imageSlot.replaceChildren();
         els.label.textContent = 'No image loaded.';
         els.fileInput.value = '';
@@ -414,12 +473,50 @@ export function initUI() {
       setStatus('Error.');
       els.progress.hidden = true;
       renderEntry();
+      clearStashProgress();
+      // The crops are partially consumed — this photo can't be re-counted
+      // as-is. Re-stage it from the stash (no auto-count: a persistent
+      // failure must not loop).
+      if (state.photo === ph) {
+        const stash = readStash();
+        state.photo = null;
+        if (stash) {
+          try {
+            const blob = await (await fetch(stash.photo.dataUrl)).blob();
+            await loadInto(blob, stash.photo.name, 'Re-preparing the photo…', { fromStash: true });
+          } catch (_) {}
+        }
+      }
     } finally {
       state.running = false;
-      renderSaveButton();
       els.reset.disabled = false;
       els.newEntryBtn.disabled = false;
+      renderSaveButton();
       updateRunEnabled();
+    }
+  }
+
+  async function resumeFromStash(stash) {
+    const doneLines = stash.progress ? stash.progress.transcripts.length : 0;
+    if (stash.progress) {
+      setStatus('Your last read was interrupted at line ' + Math.min(doneLines + 1, stash.progress.total) +
+        ' of ' + stash.progress.total + ' — this device ran low on memory. Resuming…');
+    }
+    try {
+      const blob = await (await fetch(stash.photo.dataUrl)).blob();
+      await loadInto(blob, stash.photo.name, 'Restoring your photo…', { fromStash: true });
+      if (stash.progress && state.photo && state.photo.crops) {
+        if (state.photo.crops.length === stash.progress.total) {
+          await countCurrentPhoto(stash.progress.transcripts);
+        } else {
+          // The restored photo segmented differently — prior lines don't map.
+          clearStashProgress();
+          setStatus('Photo restored — press Count words to read it from the start.');
+        }
+      }
+    } catch (e) {
+      clearStash();
+      showError(humanError('Your interrupted photo could not be restored', e));
     }
   }
 
@@ -431,6 +528,7 @@ export function initUI() {
     els.imageSlot.replaceChildren();
     els.label.textContent = 'No image loaded.';
     renderWarnings([]);
+    clearStash();
     els.progress.hidden = true;
     hideError();
     if (state.selectedPage >= 0 && state.entry) renderSelectedPage();
@@ -451,6 +549,7 @@ export function initUI() {
     els.imageSlot.replaceChildren();
     els.label.textContent = 'No image loaded.';
     renderWarnings([]);
+    clearStash();
     els.transcriptCard.hidden = true;
     els.overlayCard.hidden = true;
     els.transcriptList.replaceChildren();
@@ -487,7 +586,7 @@ export function initUI() {
       showError(humanError('The sample page could not be loaded', e));
     }
   });
-  els.run.addEventListener('click', countCurrentPhoto);
+  els.run.addEventListener('click', () => countCurrentPhoto());
   els.reset.addEventListener('click', clearPhoto);
   els.newEntryBtn.addEventListener('click', () => {
     if (state.running) return;
@@ -571,6 +670,8 @@ export function initUI() {
       setStatus(state.photo ? 'Ready — press Count words.' : (state.entry ? 'Ready — add another page.' : 'Ready — add a page.'));
     }
     updateRunEnabled();
+    const stash = readStash();
+    if (stash && !state.photo) await resumeFromStash(stash);
   }).catch((e) => {
     showError('The analyzer failed to load: ' + (e && e.message ? e.message : String(e)) + ' — reload the page to retry.');
     setStatus('Analyzer unavailable.');

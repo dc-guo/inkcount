@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>vendorstore module</title>
+<style>body{font-family:system-ui;margin:2rem}#verdict{font-size:1.3rem;font-weight:700}.pass{color:#18a34a}.fail{color:#e53935}pre{background:#f4f4f4;padding:1rem}</style></head>
+<body>
+<h1>vendorstore.js</h1>
+<div id="verdict">Running…</div>
+<pre id="log"></pre>
+<script type="module">
+import { idbPut, idbGet, idbMatch, idbHas } from '../web/src/vendorstore.js';
+
+const log = document.getElementById('log');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+let failed = null;
+const assertTrue = (got, name) => {
+  const ok = got === true;
+  say(`${ok ? 'ok  ' : 'FAIL'} ${name}: got=${JSON.stringify(got)}`);
+  if (!ok && !failed) failed = name;
+};
+
+try {
+  await new Promise((res) => { const rq = indexedDB.deleteDatabase('inkcount-vendor-idb'); rq.onsuccess = rq.onerror = rq.onblocked = res; });
+
+  assertTrue((await idbGet('/web/vendor/nothing.bin')) === null, 'miss -> null');
+  assertTrue((await idbMatch('/web/vendor/nothing.bin')) === null, 'match miss -> null');
+  assertTrue((await idbHas('/web/vendor/nothing.bin')) === false, 'has miss -> false');
+
+  const small = new Blob(['hello vendor'], { type: 'text/plain' });
+  await idbPut('/web/vendor/small.txt', small, 'text/plain');
+  const rec = await idbGet('/web/vendor/small.txt');
+  assertTrue(!!rec && rec.contentType === 'text/plain', 'small round-trip contentType');
+  const resp = await idbMatch('/web/vendor/small.txt');
+  assertTrue(!!resp && (await resp.text()) === 'hello vendor', 'match returns body');
+  assertTrue(resp.headers.get('Content-Type') === 'text/plain', 'match returns header');
+
+  // Relative and absolute URLs for the same file share one key.
+  const abs = new URL('/web/vendor/small.txt', location.href).href;
+  assertTrue(await idbHas(abs), 'absolute URL hits same key');
+
+  // Multi-MB blob (the whole point: large files that Cache API may reject).
+  const big = new Blob([new Uint8Array(5 * 1024 * 1024)], { type: 'application/octet-stream' });
+  await idbPut('/web/vendor/big.onnx', big, 'application/octet-stream');
+  const bigResp = await idbMatch('/web/vendor/big.onnx');
+  assertTrue(!!bigResp && (await bigResp.blob()).size === 5 * 1024 * 1024, '5 MB round-trip size');
+
+  // Overwrite wins.
+  await idbPut('/web/vendor/small.txt', new Blob(['second'], { type: 'text/plain' }), 'text/plain');
+  assertTrue((await (await idbMatch('/web/vendor/small.txt')).text()) === 'second', 'overwrite');
+} catch (e) {
+  failed = failed || 'exception';
+  say('EXCEPTION: ' + (e.stack || e.message));
+} finally {
+  await new Promise((res) => { const rq = indexedDB.deleteDatabase('inkcount-vendor-idb'); rq.onsuccess = rq.onerror = rq.onblocked = res; });
+}
+
+const verdict = document.getElementById('verdict');
+verdict.textContent = failed ? 'VENDORSTORE FAIL — ' + failed : 'VENDORSTORE PASS';
+verdict.className = failed ? 'fail' : 'pass';
+document.title = failed ? 'VENDORSTORE FAIL' : 'VENDORSTORE PASS';
+</script>
+</body>
+</html>

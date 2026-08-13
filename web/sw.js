@@ -6,14 +6,20 @@
  *    development never sees stale files but the app works offline.
  *  - vendor/ runtime (~80 MB: OpenCV.js, transformers bundle, wasm, model):
  *    cache-first, populated as the pages request it. Too big to block
- *    install on; effectively immutable between releases.
+ *    install on; effectively immutable between releases. The vendor cache
+ *    survives releases by design (stable, un-versioned name) so returning
+ *    users never re-download the ~65 MB model.
  *
  * CACHE_VERSION bumps together with the page's inkcount-version meta and
  * APP_VERSION in src/ui.js on every release.
  */
-const CACHE_VERSION = 'v7';
+import { idbMatch, idbPut } from './src/vendorstore.js';
+
+const CACHE_VERSION = 'v8';
 const SHELL_CACHE = 'inkcount-shell-' + CACHE_VERSION;
-const VENDOR_CACHE = 'inkcount-vendor-' + CACHE_VERSION;
+// STABLE, un-versioned: releases must never purge the ~65 MB model again
+// (v7 clients' legacy inkcount-vendor-v* caches are swept by activate).
+const VENDOR_CACHE = 'inkcount-vendor';
 
 const scopeUrl = (p) => new URL(p, self.registration.scope).toString();
 
@@ -34,6 +40,7 @@ const SHELL = [
   'src/store.js',
   'src/preflight.js',
   'src/history.js',
+  'src/vendorstore.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'samples/sample_page.jpg',
@@ -70,13 +77,32 @@ self.addEventListener('fetch', (event) => {
 
   const isVendor = url.pathname.includes('/vendor/');
   if (isVendor) {
-    // Cache-first: huge, immutable-per-release runtime files.
+    // Cache-first, then IndexedDB (large-file fallback), then network with a
+    // VERIFIED store: iOS silently rejects huge Cache API writes — catch it
+    // and store the blob in IndexedDB instead. waitUntil keeps the worker
+    // alive while the copy lands.
     event.respondWith((async () => {
       const cache = await caches.open(VENDOR_CACHE);
       const hit = await cache.match(req);
       if (hit) return hit;
+      const idbHit = await idbMatch(req.url);
+      if (idbHit) return idbHit;
       const resp = await fetch(req);
-      if (resp.ok) cache.put(req, resp.clone());
+      if (resp.ok) {
+        // Store in the background: clone now, read + persist inside
+        // waitUntil so the page starts receiving bytes immediately. The
+        // blob is read once so a failed Cache API write can still retry
+        // into IndexedDB.
+        const copy = resp.clone();
+        const contentType = resp.headers.get('Content-Type') || 'application/octet-stream';
+        event.waitUntil((async () => {
+          try {
+            const blob = await copy.blob();
+            try { await cache.put(req, new Response(blob, { headers: { 'Content-Type': contentType } })); }
+            catch (_) { try { await idbPut(req.url, blob, contentType); } catch (_) {} }
+          } catch (_) {}
+        })());
+      }
       return resp;
     })());
     return;

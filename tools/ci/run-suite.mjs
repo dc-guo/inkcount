@@ -29,7 +29,7 @@ const CDP_PORT = PORT + 1222;
 const PROFILE = path.join(os.tmpdir(), `inkcount-ci-profile-${process.pid}`);
 const REPORT = path.join(ROOT, 'tools', 'ci', 'report.json');
 
-const DEFAULT_GATES = 'smoke,assets,count,store,preflight,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
+const DEFAULT_GATES = 'smoke,assets,count,store,preflight,vendorstore,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
 const GATES = (process.env.GATES || DEFAULT_GATES).split(',').filter((g) => g && g !== 'none');
 
 function chromeBin() {
@@ -283,10 +283,10 @@ async function runUI() {
     await pollEval(page.cdp, `document.getElementById('btn-run').disabled`, (d) => d === false, 120000, 'run enabled');
     const stagedState = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       overlayShown: !document.getElementById('overlay-card').hidden,
-      overlayCanvases: document.querySelectorAll('#overlay-slot canvas').length,
+      overlayImgs: document.querySelectorAll('#overlay-slot img').length,
       warnings: document.querySelectorAll('#preflight-warnings li').length,
     })`));
-    step('analyze-on-load', stagedState.overlayShown === true && stagedState.overlayCanvases === 1 && stagedState.warnings === 0, stagedState);
+    step('analyze-on-load', stagedState.overlayShown === true && stagedState.overlayImgs === 1 && stagedState.warnings === 0, stagedState);
 
     await evalJS(page.cdp, `document.getElementById('btn-run').click()`);
     await pollEval(page.cdp, `document.getElementById('status-text').textContent`, (s) => /^Page 1 done/.test(s || ''), 600000, 'page 1 done');
@@ -427,6 +427,37 @@ async function runUI() {
       cardHidden: document.getElementById('history-card').hidden,
     })`));
     step('delete-history-row', afterDelete.rows === 0 && afterDelete.cardHidden === true, afterDelete);
+
+    // Crash-resume: seed a stash as if a read was killed after 2 lines,
+    // reload, and the app must restore the photo and finish the read alone,
+    // REUSING the seeded transcripts rather than re-reading those lines —
+    // proven by the first rendered line being the seeded text verbatim
+    // (a silent restart-from-scratch would show the sample's real first line
+    // instead, which is why an empty seed wouldn't distinguish the two).
+    await evalJS(page.cdp, `(function () {
+      window.__stashSeeded = false;
+      fetch('./samples/sample_page.jpg').then((r) => r.blob()).then((b) => new Promise((res) => {
+        const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b);
+      })).then((dataUrl) => {
+        sessionStorage.setItem('inkcount-stash-photo-v1', JSON.stringify({ name: 'sample_page.jpg', dataUrl: dataUrl }));
+        sessionStorage.setItem('inkcount-stash-progress-v1', JSON.stringify({ total: 16, transcripts: ['hello world', 'two words'] }));
+        window.__stashSeeded = true;
+      });
+    })()`);
+    await pollEval(page.cdp, `window.__stashSeeded === true`, (v) => v === true, 30000, 'stash seeded');
+    origin = await evalJS(page.cdp, 'performance.timeOrigin');
+    await page.goto(`${BASE}/web/index.html?resume=1`);
+    await freshReady(origin, 'ready for resume');
+    await pollEval(page.cdp, `document.querySelectorAll('#pages-strip .page-card').length`, (n) => n === 2, 600000, 'resume completed');
+    const resumed = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
+      total: parseInt(document.getElementById('result-total').textContent, 10),
+      firstLine: (document.querySelector('#transcript-list li') || {}).textContent || '',
+      stashPhotoCleared: sessionStorage.getItem('inkcount-stash-photo-v1') === null,
+      stashProgressCleared: sessionStorage.getItem('inkcount-stash-progress-v1') === null,
+    })`));
+    step('crash-resume', resumed.total >= 320 && resumed.total <= 400 &&
+      resumed.firstLine.includes('hello world') &&
+      resumed.stashPhotoCleared === true && resumed.stashProgressCleared === true, resumed);
 
     const camera = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       exists: !!document.getElementById('camera-input'),

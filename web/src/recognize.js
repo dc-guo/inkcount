@@ -64,28 +64,43 @@ export function isModelReady() {
 /** Last per-line recognition error, for diagnostics ('' lines in the output). */
 export let lastError = null;
 
+/** Longest sensible generation for one handwritten line (~5-12 words).
+ * Far above any real line, far below a runaway repetition loop — bounds both
+ * latency and the per-line wasm memory spike that kills iOS tabs. */
+export const MAX_NEW_TOKENS = 48;
+
 /**
- * recognizeLines(crops, onLine) -> transcripts (one string per crop, '' on a
- * per-line failure — a single bad crop must not sink the whole page).
- * onLine(i, n, text) fires after each line so the UI can stream progress.
+ * recognizeLines(crops, onLine, prior) -> transcripts (one string per crop,
+ * '' on a per-line failure — a single bad crop must not sink the page).
+ * prior: transcripts from an interrupted read; those lines are reused, not
+ * re-read. Consumed crop slots are nulled so a long page never holds every
+ * line canvas at once (iOS memory kills). onLine(i, n, text) fires only for
+ * freshly-read lines.
  */
-export async function recognizeLines(crops, onLine) {
+export async function recognizeLines(crops, onLine, prior = []) {
   const ocr = await modelPromise;
   if (!ocr) throw new Error('Model not loaded — call loadModel() first.');
   const out = [];
   for (let i = 0; i < crops.length; i++) {
+    if (i < prior.length) {
+      out.push(prior[i]);
+      crops[i] = null;
+      continue;
+    }
     let text = '';
     try {
       // Data URLs are the pipeline's most portable image input across
       // transformers.js versions; the PNG encode is a few ms per line.
-      const result = await ocr(crops[i].toDataURL('image/png'));
+      const result = await ocr(crops[i].toDataURL('image/png'), { max_new_tokens: MAX_NEW_TOKENS });
       text = (result?.[0]?.generated_text ?? '').trim();
     } catch (e) {
       lastError = e;
       text = '';
     }
+    crops[i] = null; // release the consumed canvas immediately
     out.push(text);
     try { onLine && onLine(i, crops.length, text); } catch (_) {}
+    await new Promise((r) => setTimeout(r, 0)); // let Safari's GC breathe
   }
   return out;
 }
