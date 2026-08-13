@@ -15,7 +15,7 @@
  */
 import { idbMatch, idbPut } from './src/vendorstore.js';
 
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const SHELL_CACHE = 'inkcount-shell-' + CACHE_VERSION;
 // STABLE, un-versioned: releases must never purge the ~65 MB model again
 // (v7 clients' legacy inkcount-vendor-v* caches are swept by activate).
