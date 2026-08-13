@@ -354,7 +354,7 @@ export function initUI() {
     mine.thumb = makeThumb(mine.canvas, 160, 0.7);
     mine.overlayJpeg = makeThumb(staged.overlayCanvas, 1000, 0.75);
     mine.preview = makeThumb(mine.canvas, 800, 0.8);
-    if (!mine.fromStash) writeStashPhoto(mine.name, makeThumb(mine.canvas, 2000, 0.8));
+    if (!mine.fromStash) { clearStashProgress(); writeStashPhoto(mine.name, makeThumb(mine.canvas, 2000, 0.8)); }
     mine.crops = staged.crops;
     mine.skewAngle = staged.skewAngle;
     mine.textHeight = staged.textHeight;
@@ -429,7 +429,7 @@ export function initUI() {
       });
       els.progress.max = ph.crops.length;
       els.progress.value = prior.length;
-      writeStashProgress(ph.crops.length, prior);
+      if (state.photo === ph) writeStashProgress(ph.crops.length, prior);
       const seen = prior.slice();
       const transcripts = await recognizeLines(ph.crops, (i, n, text) => {
         seen.push(text);
@@ -453,7 +453,7 @@ export function initUI() {
       clearStashProgress();
       if (state.photo === ph) { // still ours — a newer staged photo must survive untouched
         clearStash();
-        state.photo = null; // canvas, crops, and overlay were already released progressively — this drops the last reference
+        state.photo = null; // canvas, crops, and the overlay canvas were already released progressively — this drops the last reference
         els.imageSlot.replaceChildren();
         els.label.textContent = 'No image loaded.';
         els.fileInput.value = '';
