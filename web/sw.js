@@ -89,11 +89,18 @@ self.addEventListener('fetch', (event) => {
       if (idbHit) return idbHit;
       const resp = await fetch(req);
       if (resp.ok) {
-        const blob = await resp.clone().blob();
+        // Store in the background: clone now, read + persist inside
+        // waitUntil so the page starts receiving bytes immediately. The
+        // blob is read once so a failed Cache API write can still retry
+        // into IndexedDB.
+        const copy = resp.clone();
         const contentType = resp.headers.get('Content-Type') || 'application/octet-stream';
         event.waitUntil((async () => {
-          try { await cache.put(req, new Response(blob, { headers: { 'Content-Type': contentType } })); }
-          catch (_) { try { await idbPut(req.url, blob, contentType); } catch (_) {} }
+          try {
+            const blob = await copy.blob();
+            try { await cache.put(req, new Response(blob, { headers: { 'Content-Type': contentType } })); }
+            catch (_) { try { await idbPut(req.url, blob, contentType); } catch (_) {} }
+          } catch (_) {}
         })());
       }
       return resp;
