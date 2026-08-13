@@ -1,7 +1,7 @@
 # InkCount v8 — iOS Hotfix: Model Cache, Read Memory, Crash Resume (Design)
 
 Date: 2026-08-12
-Status: **Awaiting user go** (field-driven; defaults chosen, flag anything)
+Status: **Approved** (user "go", 2026-08-12; both §8 defaults stand)
 Trigger: Diane's iPhone field report on v7 (iOS 18.7 / Safari 26.5, 4 cores):
 (1) the ~65 MB reader re-downloads on every visit; (2) recognition dies
 mid-read and the page reloads — line ~4 of 21 on a real photo, line ~6 of 16
@@ -72,8 +72,9 @@ are also memory spikes).
   far below a runaway loop. Calibration rule: all 9 fixtures + sample keep
   their exact counts (accuracy gate enforces).
 - **GC breathing room:** a `setTimeout(0)` macro-task yield between lines.
-- **Pre-sized crops:** crops are handed to the processor at its native input
-  height (384 px) instead of full band resolution, shrinking per-line buffers.
+- **Deferred: pre-sized crops.** Rescaling crops before the processor risks
+  interpolation-level count shifts on the fixtures for a modest transient-
+  memory win; it stays out of v8 unless the on-device retest still dies.
 
 ## 4. W3 — Crash forensics + resume (when iOS kills us anyway)
 
