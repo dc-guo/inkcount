@@ -29,7 +29,7 @@ const CDP_PORT = PORT + 1222;
 const PROFILE = path.join(os.tmpdir(), `inkcount-ci-profile-${process.pid}`);
 const REPORT = path.join(ROOT, 'tools', 'ci', 'report.json');
 
-const DEFAULT_GATES = 'smoke,assets,count,store,preflight,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
+const DEFAULT_GATES = 'smoke,assets,count,store,preflight,vendorstore,decode,preprocess,segment,recognize,accuracy,a11y,pwa';
 const GATES = (process.env.GATES || DEFAULT_GATES).split(',').filter((g) => g && g !== 'none');
 
 function chromeBin() {
