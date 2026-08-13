@@ -8,7 +8,7 @@ import { estimateWords } from './geometric.js';
 import { loadModel, recognizeLines } from './recognize.js';
 import { countWords } from './count.js';
 import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb, loadHistory, saveToHistory, deleteHistoryRow, clearHistory, isEntrySaved, storageAvailable } from './store.js';
-import { evaluatePreflight } from './preflight.js';
+import { evaluatePreflight, medianLuminance } from './preflight.js';
 import { renderHistory } from './history.js';
 
 /* Bumped together with the <meta name="inkcount-version"> in index.html on
@@ -345,7 +345,7 @@ export function initUI() {
       const overlay = drawOverlay(pre.gray, segs.map((s) => s.rect), est.boxes, segs.rejected);
       if (DEBUG && segs.rejected) console.log('[inkcount debug] rejected bands:', JSON.stringify(segs.rejected));
       return { crops: segs.map((s) => s.canvas), overlayCanvas: overlay, skewAngle: pre.skewAngle,
-        textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length };
+        textHeight: pre.textHeight, lines: segs.length, rejectedCount: (segs.rejected || []).length, medianLum: medianLuminance(pre.gray) };
     });
     if (state.photo !== mine) return;
     // Snapshot every JPEG the rest of the flow needs, stash the photo for
