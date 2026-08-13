@@ -315,8 +315,7 @@ export function initUI() {
     renderEntry();
   }
 
-  function showStagedOverlay() {
-    const ph = state.photo;
+  function showStagedOverlay(ph) {
     const img = document.createElement('img');
     img.src = ph.overlayJpeg;
     img.alt = ph.lines === 0 ? 'The straightened page — no handwritten lines found'
@@ -363,7 +362,7 @@ export function initUI() {
     mine.rejectedCount = staged.rejectedCount;
     mine.canvas = null;
     showPreviewImage(mine);
-    showStagedOverlay();
+    showStagedOverlay(mine);
     renderWarnings(evaluatePreflight(staged));
     setStatus(staged.lines === 0 ? 'No handwriting found in this photo — try another.' : 'Ready — press Count words.');
     updateRunEnabled();
@@ -413,7 +412,7 @@ export function initUI() {
     els.saveEntryBtn.disabled = true;
     updateRunEnabled();
     const t0 = performance.now();
-    const ph = state.photo;
+    const ph = state.photo; // captured now — loadInto can replace state.photo while this awaits
     const baseTotal = state.entry ? entryTotal(state.entry) : 0;
     const pageNo = (state.entry ? state.entry.pages.length : 0) + 1;
     try {
@@ -434,7 +433,7 @@ export function initUI() {
       const seen = prior.slice();
       const transcripts = await recognizeLines(ph.crops, (i, n, text) => {
         seen.push(text);
-        writeStashProgress(n, seen);
+        if (state.photo === ph) writeStashProgress(n, seen);
         els.progress.value = i + 1;
         setStatus('Reading line ' + (i + 1) + ' of ' + n + ' on page ' + pageNo + '…');
         showCount(baseTotal + countWords(seen).total, 'so far — reading line ' + (i + 1) + ' of ' + n + '…');
@@ -452,9 +451,9 @@ export function initUI() {
       state.selectedPage = state.entry.pages.length - 1;
       persistEntry();
       clearStashProgress();
-      if (state.photo === ph) {
+      if (state.photo === ph) { // still ours — a newer staged photo must survive untouched
         clearStash();
-        state.photo = null;
+        state.photo = null; // canvas, crops, and overlay were already released progressively — this drops the last reference
         els.imageSlot.replaceChildren();
         els.label.textContent = 'No image loaded.';
         els.fileInput.value = '';
@@ -474,13 +473,13 @@ export function initUI() {
       setStatus('Error.');
       els.progress.hidden = true;
       renderEntry();
+      clearStashProgress();
       // The crops are partially consumed — this photo can't be re-counted
       // as-is. Re-stage it from the stash (no auto-count: a persistent
       // failure must not loop).
       if (state.photo === ph) {
         const stash = readStash();
         state.photo = null;
-        clearStashProgress();
         if (stash) {
           try {
             const blob = await (await fetch(stash.photo.dataUrl)).blob();

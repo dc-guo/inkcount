@@ -428,15 +428,19 @@ async function runUI() {
     })`));
     step('delete-history-row', afterDelete.rows === 0 && afterDelete.cardHidden === true, afterDelete);
 
-    // Crash-resume: seed a stash as if a read was killed before line 1,
-    // reload, and the app must restore the photo and finish the read alone.
+    // Crash-resume: seed a stash as if a read was killed after 2 lines,
+    // reload, and the app must restore the photo and finish the read alone,
+    // REUSING the seeded transcripts rather than re-reading those lines —
+    // proven by the first rendered line being the seeded text verbatim
+    // (a silent restart-from-scratch would show the sample's real first line
+    // instead, which is why an empty seed wouldn't distinguish the two).
     await evalJS(page.cdp, `(function () {
       window.__stashSeeded = false;
       fetch('./samples/sample_page.jpg').then((r) => r.blob()).then((b) => new Promise((res) => {
         const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b);
       })).then((dataUrl) => {
         sessionStorage.setItem('inkcount-stash-photo-v1', JSON.stringify({ name: 'sample_page.jpg', dataUrl: dataUrl }));
-        sessionStorage.setItem('inkcount-stash-progress-v1', JSON.stringify({ total: 16, transcripts: [] }));
+        sessionStorage.setItem('inkcount-stash-progress-v1', JSON.stringify({ total: 16, transcripts: ['hello world', 'two words'] }));
         window.__stashSeeded = true;
       });
     })()`);
@@ -447,10 +451,12 @@ async function runUI() {
     await pollEval(page.cdp, `document.querySelectorAll('#pages-strip .page-card').length`, (n) => n === 2, 600000, 'resume completed');
     const resumed = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
       total: parseInt(document.getElementById('result-total').textContent, 10),
+      firstLine: (document.querySelector('#transcript-list li') || {}).textContent || '',
       stashPhotoCleared: sessionStorage.getItem('inkcount-stash-photo-v1') === null,
       stashProgressCleared: sessionStorage.getItem('inkcount-stash-progress-v1') === null,
     })`));
-    step('crash-resume', resumed.total >= 340 && resumed.total <= 400 &&
+    step('crash-resume', resumed.total >= 320 && resumed.total <= 400 &&
+      resumed.firstLine.includes('hello world') &&
       resumed.stashPhotoCleared === true && resumed.stashProgressCleared === true, resumed);
 
     const camera = JSON.parse(await evalJS(page.cdp, `JSON.stringify({
