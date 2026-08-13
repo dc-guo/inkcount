@@ -125,12 +125,12 @@ const t = (ms) => (ms / 1000).toFixed(1) + 's';
     const blob = await (await fetch('./samples/sample_page.jpg')).blob();
     const canvas = await decodeToCanvas(blob);
     const crops = await withMats(async (scope) => segmentLines(preprocess(canvas, scope), scope).map((s) => s.canvas));
-    localStorage.setItem(CRUMB, JSON.stringify({ line: 0, total: crops.length, done: false }));
+    try { localStorage.setItem(CRUMB, JSON.stringify({ line: 0, total: crops.length, done: false })); } catch (_) {}
     const transcripts = await recognizeLines(crops, (i, n) => {
       try { localStorage.setItem(CRUMB, JSON.stringify({ line: i + 1, total: n, done: false })); } catch (_) {}
     });
     const { total } = countWords(transcripts);
-    localStorage.setItem(CRUMB, JSON.stringify({ done: true }));
+    try { localStorage.setItem(CRUMB, JSON.stringify({ done: true })); } catch (_) {}
     const secs = performance.now() - t0;
     const perLine = Math.round(secs / Math.max(1, crops.length));
     if (total === 188 && crops.length === 16) {
@@ -143,12 +143,14 @@ const t = (ms) => (ms / 1000).toFixed(1) + 's';
   try {
     const decoderPath = './vendor/models/Xenova/trocr-small-handwritten/onnx/decoder_model_merged_quantized.onnx';
     const decoderUrl = new URL(decoderPath, location.href).href;
-    const cacheHit = typeof caches !== 'undefined' && !!(await caches.match(decoderUrl, { ignoreSearch: true }));
+    const appCache = 'caches' in window ? await (await caches.open('inkcount-vendor')).match(decoderUrl, { ignoreSearch: true }) : null;
     const inIdb = await idbHas(decoderUrl);
-    row('Reader cached?', (cacheHit || inIdb) ? 'ok' : 'bad',
-      cacheHit ? 'yes — Cache API (survives new visits and app updates)'
+    const anyCache = (!appCache && 'caches' in window) ? await caches.match(decoderUrl, { ignoreSearch: true }) : null;
+    row('Reader cached?', (appCache || inIdb || anyCache) ? 'ok' : 'bad',
+      appCache ? 'yes — app cache (survives new visits and app updates)'
         : inIdb ? 'yes — IndexedDB large-file fallback (survives new visits and app updates)'
-          : 'NO — the ~65 MB reader will re-download on the next visit');
+          : anyCache ? 'yes — library cache (no re-download expected)'
+            : 'NO — the ~65 MB reader will re-download on the next visit');
   } catch (e) { row('Reader cached?', 'skip', e.message); }
 
   try {
