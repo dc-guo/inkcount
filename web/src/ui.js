@@ -119,7 +119,7 @@ export function initUI() {
   }
 
   function setIdleStatus() {
-    if (state.photo || state.running) return;
+    if (state.photo || state.running || state.loading) return;
     setStatus(state.cvReady ? (state.entry ? 'Ready — add another page.' : 'Ready — add a page.') : 'Preparing the analyzer…');
   }
 
@@ -134,11 +134,11 @@ export function initUI() {
     loadModel((p) => {
       if (!announced && p && p.status === 'progress') {
         announced = true;
-        if (!state.photo && !state.running) setStatus('Ready — the reader is downloading in the background (one-time)…');
+        if (!state.photo && !state.running && !state.loading) setStatus('Ready — the reader is downloading in the background (one-time)…');
       }
     }).then(() => {
       setIdleStatus();
-    }).catch(() => { /* the lazy load at Count remains the fallback */ });
+    }).catch(() => { setIdleStatus(); /* the lazy load at Count remains the fallback */ });
   }
 
   // Crash stash: iOS can kill the tab mid-read. While a photo is staged or

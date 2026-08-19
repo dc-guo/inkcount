@@ -114,7 +114,7 @@ self.addEventListener('fetch', (event) => {
                 await logStore('idb');
               } catch (_) { await logStore('none'); }
             }
-          } catch (_) {}
+          } catch (_) { await logStore('none'); }
         })());
       }
       return resp;

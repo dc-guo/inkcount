@@ -55,7 +55,7 @@ try {
   assertTrue(!!meta && meta.layer === 'idb' && meta.when === 123, 'meta round-trip');
   await idbSetMeta('store-log:/web/vendor/big.onnx', { layer: 'cache', when: 456 });
   assertTrue((await idbGetMeta('store-log:/web/vendor/big.onnx')).when === 456, 'meta overwrite');
-  assertTrue((await idbMatch('/web/vendor/big.onnx')) !== null, 'file key unaffected by meta writes');
+  assertTrue((await (await idbMatch('/web/vendor/big.onnx')).blob()).size === 5 * 1024 * 1024, 'file key unaffected by meta writes (content intact)');
 } catch (e) {
   failed = failed || 'exception';
   say('EXCEPTION: ' + (e.stack || e.message));
