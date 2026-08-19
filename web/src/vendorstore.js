@@ -55,6 +55,10 @@ export async function idbHas(url) {
   try { return !!(await idbGet(url)); } catch (_) { return false; }
 }
 
+/* WARNING: meta names must only ever go through idbSetMeta/idbGetMeta. Passing
+ * a raw 'store-log:…' name to the file APIs (idbGet/idbMatch/idbHas) silently
+ * aliases the real file's key — 'store-log' parses as a URL scheme and keyFor
+ * strips it back to the bare pathname. */
 const META_PREFIX = 'meta:';
 
 /** Store a small metadata value (e.g. the SW's per-file store log) under a
