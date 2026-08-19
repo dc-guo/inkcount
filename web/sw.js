@@ -13,7 +13,7 @@
  * CACHE_VERSION bumps together with the page's inkcount-version meta and
  * APP_VERSION in src/ui.js on every release.
  */
-import { idbMatch, idbPut } from './src/vendorstore.js';
+import { idbMatch, idbPut, idbSetMeta, idbGet } from './src/vendorstore.js';
 
 const CACHE_VERSION = 'v8';
 const SHELL_CACHE = 'inkcount-shell-' + CACHE_VERSION;
@@ -96,10 +96,24 @@ self.addEventListener('fetch', (event) => {
         const copy = resp.clone();
         const contentType = resp.headers.get('Content-Type') || 'application/octet-stream';
         event.waitUntil((async () => {
+          const pathname = new URL(req.url).pathname;
+          const logStore = async (layer) => {
+            try { await idbSetMeta('store-log:' + pathname, { layer, when: Date.now() }); } catch (_) {}
+          };
           try {
             const blob = await copy.blob();
-            try { await cache.put(req, new Response(blob, { headers: { 'Content-Type': contentType } })); }
-            catch (_) { try { await idbPut(req.url, blob, contentType); } catch (_) {} }
+            try {
+              await cache.put(req, new Response(blob, { headers: { 'Content-Type': contentType } }));
+              // iOS can resolve put() without persisting — trust only a read-back.
+              if (!(await cache.match(req))) throw new Error('cache read-back miss');
+              await logStore('cache');
+            } catch (_) {
+              try {
+                await idbPut(req.url, blob, contentType);
+                if (!(await idbGet(req.url))) throw new Error('idb read-back miss');
+                await logStore('idb');
+              } catch (_) { await logStore('none'); }
+            }
           } catch (_) {}
         })());
       }
