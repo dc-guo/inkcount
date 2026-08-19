@@ -60,7 +60,7 @@ import { preprocess } from './src/preprocess.js';
 import { segmentLines } from './src/segment.js';
 import { loadModel, recognizeLines } from './src/recognize.js';
 import { countWords } from './src/count.js';
-import { idbHas } from './src/vendorstore.js';
+import { idbHas, idbGetMeta } from './src/vendorstore.js';
 
 const checksEl = document.getElementById('checks');
 const details = [];
@@ -146,11 +146,13 @@ const t = (ms) => (ms / 1000).toFixed(1) + 's';
     const appCache = 'caches' in window ? await (await caches.open('inkcount-vendor')).match(decoderUrl, { ignoreSearch: true }) : null;
     const inIdb = await idbHas(decoderUrl);
     const anyCache = (!appCache && 'caches' in window) ? await caches.match(decoderUrl, { ignoreSearch: true }) : null;
+    const storeLog = await idbGetMeta('store-log:' + new URL(decoderPath, location.href).pathname);
+    const logNote = storeLog ? ' · last store attempt: ' + storeLog.layer + ' (' + new Date(storeLog.when).toLocaleTimeString() + ')' : '';
     row('Reader cached?', (appCache || inIdb || anyCache) ? 'ok' : 'bad',
-      appCache ? 'yes — app cache (survives new visits and app updates)'
-        : inIdb ? 'yes — IndexedDB large-file fallback (survives new visits and app updates)'
-          : anyCache ? 'yes — library cache (no re-download expected)'
-            : 'NO — the ~65 MB reader will re-download on the next visit');
+      appCache ? 'yes — app cache (survives new visits and app updates)' + logNote
+        : inIdb ? 'yes — IndexedDB large-file fallback (survives new visits and app updates)' + logNote
+          : anyCache ? 'yes — library cache (no re-download expected)' + logNote
+            : 'NO — the ~65 MB reader will re-download on the next visit' + logNote);
   } catch (e) { row('Reader cached?', 'skip', e.message); }
 
   try {

@@ -54,3 +54,38 @@ export async function idbMatch(url) {
 export async function idbHas(url) {
   try { return !!(await idbGet(url)); } catch (_) { return false; }
 }
+
+/* WARNING: meta names must only ever go through idbSetMeta/idbGetMeta. Passing
+ * a raw 'store-log:…' name to the file APIs (idbGet/idbMatch/idbHas) silently
+ * aliases the real file's key — 'store-log' parses as a URL scheme and keyFor
+ * strips it back to the bare pathname. */
+const META_PREFIX = 'meta:';
+
+/** Store a small metadata value (e.g. the SW's per-file store log) under a
+ * meta: key — the prefix keeps these out of the pathname file-key space. */
+export async function idbSetMeta(name, value) {
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({ meta: value }, META_PREFIX + name);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('idb meta write failed'));
+      tx.onabort = () => reject(tx.error || new Error('idb meta write aborted'));
+    });
+  } finally { db.close(); }
+}
+
+export async function idbGetMeta(name) {
+  try {
+    const db = await openDb();
+    try {
+      const rec = await new Promise((resolve, reject) => {
+        const rq = db.transaction(STORE, 'readonly').objectStore(STORE).get(META_PREFIX + name);
+        rq.onsuccess = () => resolve(rq.result || null);
+        rq.onerror = () => reject(rq.error || new Error('idb meta read failed'));
+      });
+      return rec ? rec.meta : null;
+    } finally { db.close(); }
+  } catch (_) { return null; }
+}

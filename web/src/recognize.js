@@ -24,19 +24,24 @@ const MODEL_ID = 'Xenova/trocr-small-handwritten';
 
 let modelPromise = null;
 let ready = false;
+let currentProgress = null;
 
 /**
  * loadModel(onProgress) — memoized; safe to call repeatedly.
  * onProgress receives transformers.js progress events:
  *   { status: 'progress', file, progress (0-100), loaded, total } during fetch,
  *   { status: 'ready' } at the end.
+ * A non-null onProgress on any call (even when the load is already in flight)
+ * replaces the live progress callback — a Count pressed mid-prefetch takes
+ * over the progress UI.
  */
 export function loadModel(onProgress) {
+  if (onProgress) currentProgress = onProgress;
   if (!modelPromise) {
     modelPromise = (async () => {
       const p = await pipeline('image-to-text', MODEL_ID, {
         dtype: 'q8',
-        progress_callback: (ev) => { try { onProgress && onProgress(ev); } catch (_) {} },
+        progress_callback: (ev) => { try { currentProgress && currentProgress(ev); } catch (_) {} },
       });
       // transformers.js 4.2.0's pipeline() leaves BOTH .processor and
       // .tokenizer null for this legacy Xenova model conversion, though the

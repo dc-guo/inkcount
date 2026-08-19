@@ -5,7 +5,7 @@ import { decodeToCanvas } from './decode.js';
 import { preprocess } from './preprocess.js';
 import { segmentLines } from './segment.js';
 import { estimateWords } from './geometric.js';
-import { loadModel, recognizeLines } from './recognize.js';
+import { loadModel, recognizeLines, isModelReady } from './recognize.js';
 import { countWords } from './count.js';
 import { newEntry, loadEntry, saveEntry, clearEntry, entryTotal, makeThumb, loadHistory, saveToHistory, deleteHistoryRow, clearHistory, isEntrySaved, storageAvailable } from './store.js';
 import { evaluatePreflight, medianLuminance } from './preflight.js';
@@ -16,7 +16,7 @@ import { renderHistory } from './history.js';
  * deploy a browser can pair fresh HTML with stale JS (or vice versa) — which
  * crashed with "Cannot set properties of null" when this code addressed an
  * element the other version didn't have. Detect the mismatch and self-heal. */
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 
 export function initUI() {
   const $ = (id) => document.getElementById(id);
@@ -116,6 +116,29 @@ export function initUI() {
       state.memoryOnly = true;
       showError("This device's storage is full — this entry can't be kept across refreshes. Counting still works normally.");
     }
+  }
+
+  function setIdleStatus() {
+    if (state.photo || state.running || state.loading) return;
+    setStatus(state.cvReady ? (state.entry ? 'Ready — add another page.' : 'Ready — add a page.') : 'Preparing the analyzer…');
+  }
+
+  function prefetchReader() {
+    // Download + store the ~65 MB reader while the page is idle. On tight
+    // devices the service worker's background store must not race a read's
+    // memory peak — field-observed on iOS: the store lost that race, so
+    // every crash re-downloaded the model and the transfer buffers fed the
+    // very pressure causing the kills.
+    if (isModelReady()) return;
+    let announced = false;
+    loadModel((p) => {
+      if (!announced && p && p.status === 'progress') {
+        announced = true;
+        if (!state.photo && !state.running && !state.loading) setStatus('Ready — the reader is downloading in the background (one-time)…');
+      }
+    }).then(() => {
+      setIdleStatus();
+    }).catch(() => { setIdleStatus(); /* the lazy load at Count remains the fallback */ });
   }
 
   // Crash stash: iOS can kill the tab mid-read. While a photo is staged or
@@ -672,6 +695,7 @@ export function initUI() {
     updateRunEnabled();
     const stash = readStash();
     if (stash && !state.photo) await resumeFromStash(stash);
+    prefetchReader();
   }).catch((e) => {
     showError('The analyzer failed to load: ' + (e && e.message ? e.message : String(e)) + ' — reload the page to retry.');
     setStatus('Analyzer unavailable.');
